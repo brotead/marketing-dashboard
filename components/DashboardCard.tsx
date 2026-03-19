@@ -21,7 +21,7 @@ export default function DashboardCard({
   clientName, metaAccount, googleAccount, budgets, daysPassed, daysInMonth,
 }: Props) {
   const metaBudgets   = budgets.filter((b) => b.source === 'facebook'   && !b.paused)
-  const googleBudgets = budgets.filter((b) => b.source === 'google_ads' && !b.paused)
+  const googleBudgets = budgets.filter((b) => b.source === 'google' && !b.paused)
 
   const metaBudget   = metaBudgets.reduce((s, b) => s + b.budget_total, 0)
   const googleBudget = googleBudgets.reduce((s, b) => s + b.budget_total, 0)

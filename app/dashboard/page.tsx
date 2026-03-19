@@ -59,11 +59,11 @@ export default function DashboardPage() {
 
   // Summary totals
   const totalMetaSpend   = accounts.filter(a => a.source === 'facebook').reduce((s, a) => s + a.spend, 0)
-  const totalGoogleSpend = accounts.filter(a => a.source === 'google_ads').reduce((s, a) => s + a.spend, 0)
+  const totalGoogleSpend = accounts.filter(a => a.source === 'google').reduce((s, a) => s + a.spend, 0)
   const totalSpend       = totalMetaSpend + totalGoogleSpend
 
   const totalMetaBudget   = monthBudgets.filter(b => b.source === 'facebook'   && !b.paused).reduce((s, b) => s + b.budget_total, 0)
-  const totalGoogleBudget = monthBudgets.filter(b => b.source === 'google_ads' && !b.paused).reduce((s, b) => s + b.budget_total, 0)
+  const totalGoogleBudget = monthBudgets.filter(b => b.source === 'google' && !b.paused).reduce((s, b) => s + b.budget_total, 0)
   const totalBudget       = totalMetaBudget + totalGoogleBudget
 
   // Account health counts (across all platforms)
@@ -168,9 +168,9 @@ export default function DashboardPage() {
           {clients.map((client) => {
             const clientBudgets = monthBudgets.filter((b) => b.client_name === client)
             const metaAccountId   = clientBudgets.find(b => b.source === 'facebook')?.account_id
-            const googleAccountId = clientBudgets.find(b => b.source === 'google_ads')?.account_id
+            const googleAccountId = clientBudgets.find(b => b.source === 'google')?.account_id
             const metaAccount   = accounts.find(a => a.account_id === metaAccountId && a.source === 'facebook')
-            const googleAccount = accounts.find(a => a.account_id === googleAccountId && a.source === 'google_ads')
+            const googleAccount = accounts.find(a => a.account_id === googleAccountId && a.source === 'google')
             return (
               <DashboardCard
                 key={client}

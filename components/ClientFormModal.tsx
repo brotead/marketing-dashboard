@@ -5,7 +5,7 @@ import { X } from 'lucide-react'
 import type { BudgetEntry } from '@/lib/types'
 
 interface Props {
-  source: 'facebook' | 'google_ads'
+  source: 'facebook' | 'google'
   year: number
   month: number
   existingIds: string[]

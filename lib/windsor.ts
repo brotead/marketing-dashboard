@@ -81,7 +81,7 @@ async function fetchAccounts(
 export async function fetchWindsorAccounts(year: number, month: number): Promise<AccountData[]> {
   const [meta, google] = await Promise.all([
     fetchAccounts(year, month, 'facebook'),
-    fetchAccounts(year, month, 'google_ads'),
+    fetchAccounts(year, month, 'google'),
   ])
   return [...meta, ...google]
 }

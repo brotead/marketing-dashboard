@@ -13,7 +13,7 @@ const MONTHS = [
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ]
 
-type Source = 'facebook' | 'google_ads'
+type Source = 'facebook' | 'google'
 
 interface Selection {
   client: string
@@ -204,7 +204,7 @@ export default function CashflowPage() {
   }
 
   const metaClients = getClients('facebook')
-  const googleClients = getClients('google_ads')
+  const googleClients = getClients('google')
 
   function ClientList({ source, clients, color }: { source: Source; clients: string[]; color: string }) {
     return (
@@ -313,7 +313,7 @@ export default function CashflowPage() {
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Google Ads</p>
                   </div>
                   <button
-                    onClick={() => setClientModal('google_ads')}
+                    onClick={() => setClientModal('google')}
                     className="text-gray-400 hover:text-blue-500 transition"
                     title="Agregar cliente Google"
                   >
@@ -321,7 +321,7 @@ export default function CashflowPage() {
                   </button>
                 </div>
                 {googleClients.length > 0
-                  ? <ClientList source="google_ads" clients={googleClients} color="bg-[#4285F4]" />
+                  ? <ClientList source="google" clients={googleClients} color="bg-[#4285F4]" />
                   : <p className="text-xs text-gray-400 px-3">Sin clientes</p>
                 }
               </div>
