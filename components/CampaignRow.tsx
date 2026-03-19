@@ -1,6 +1,6 @@
 'use client'
 
-import { Settings, Trash2 } from 'lucide-react'
+import { Settings, Trash2, PauseCircle, PlayCircle } from 'lucide-react'
 import type { BudgetEntry, CashflowResult } from '@/lib/types'
 
 interface Props {
@@ -8,6 +8,7 @@ interface Props {
   cashflow: CashflowResult
   onEdit: () => void
   onDelete: () => void
+  onPause: () => void
 }
 
 function currency(n: number) {
@@ -37,9 +38,36 @@ const DEVIATION_TEXT: Record<CashflowResult['status'], string> = {
   underspending:'text-amber-500',
 }
 
-export default function CampaignRow({ budget, cashflow, onEdit, onDelete }: Props) {
+export default function CampaignRow({ budget, cashflow, onEdit, onDelete, onPause }: Props) {
   const barW = Math.min(cashflow.pctConsumed, 100)
   const expW = Math.min(cashflow.pctExpected, 100)
+
+  if (budget.paused) {
+    return (
+      <div className="bg-gray-50 border border-gray-200 border-dashed rounded-xl px-4 py-3 flex items-center gap-3 opacity-60">
+        <span className="w-2 h-2 rounded-full shrink-0 bg-gray-400" />
+        <p className="flex-1 text-sm text-gray-500 truncate min-w-0">{budget.campaign_name}</p>
+        <span className="text-xs bg-gray-200 text-gray-500 px-2 py-0.5 rounded-full font-medium">Pausada</span>
+        <span className="text-xs text-gray-500 font-medium">{currency(budget.budget_total)}</span>
+        <div className="flex items-center gap-0.5 shrink-0">
+          <button
+            onClick={onPause}
+            className="text-gray-400 hover:text-blue-500 p-1 rounded hover:bg-gray-100 transition"
+            title="Reactivar campaña"
+          >
+            <PlayCircle size={13} />
+          </button>
+          <button
+            onClick={onDelete}
+            className="text-gray-400 hover:text-red-500 p-1 rounded hover:bg-gray-100 transition"
+            title="Eliminar campaña"
+          >
+            <Trash2 size={13} />
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="bg-white border border-gray-100 rounded-xl px-4 py-3.5 hover:border-gray-200 transition">
@@ -51,9 +79,16 @@ export default function CampaignRow({ budget, cashflow, onEdit, onDelete }: Prop
           <button
             onClick={onEdit}
             className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100 transition"
-            title="Editar presupuesto"
+            title="Editar campaña"
           >
             <Settings size={13} />
+          </button>
+          <button
+            onClick={onPause}
+            className="text-gray-400 hover:text-amber-500 p-1 rounded hover:bg-gray-100 transition"
+            title="Pausar campaña"
+          >
+            <PauseCircle size={13} />
           </button>
           <button
             onClick={onDelete}

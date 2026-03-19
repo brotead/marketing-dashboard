@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, Plus } from 'lucide-react'
+import { RefreshCw, Plus, Pencil, AlertTriangle } from 'lucide-react'
 import CampaignRow from '@/components/CampaignRow'
 import CampaignFormModal from '@/components/CampaignFormModal'
 import type { AccountData, BudgetEntry } from '@/lib/types'
@@ -26,8 +26,8 @@ function campaignSpend(
 ): number {
   const account = accounts.find((a) => a.account_id === budget.account_id)
   if (!account) return 0
-  const accountBudgets = monthBudgets.filter((b) => b.account_id === budget.account_id)
-  const accountTotalBudget = accountBudgets.reduce((s, b) => s + b.budget_total, 0)
+  const activeBudgets = monthBudgets.filter((b) => b.account_id === budget.account_id && !b.paused)
+  const accountTotalBudget = activeBudgets.reduce((s, b) => s + b.budget_total, 0)
   if (accountTotalBudget === 0) return 0
   return (budget.budget_total / accountTotalBudget) * account.spend
 }
@@ -49,6 +49,10 @@ export default function CashflowPage() {
   const [selectedClient, setSelectedClient] = useState<string | null>(null)
   const [modal, setModal] = useState<ModalState | null>(null)
 
+  // Inline total budget editing
+  const [editingTotal, setEditingTotal] = useState(false)
+  const [totalInput, setTotalInput] = useState('')
+
   const fetchData = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -63,7 +67,6 @@ export default function CashflowPage() {
       const bs: BudgetEntry[] = await budgetRes.json()
       setAccounts(accs)
       setBudgets(bs)
-      // Auto-select first client on first load
       const clients = getClients(bs.filter((b) => b.year === year && b.month === month))
       setSelectedClient((prev) => prev ?? clients[0] ?? null)
     } catch (e) {
@@ -82,16 +85,18 @@ export default function CashflowPage() {
   const monthBudgets = budgets.filter((b) => b.year === year && b.month === month)
   const clients = getClients(monthBudgets)
   const clientBudgets = monthBudgets.filter((b) => b.client_name === selectedClient)
+  const activeBudgets = clientBudgets.filter((b) => !b.paused)
+  const pausedBudgets = clientBudgets.filter((b) => b.paused)
 
   const daysInMonth = new Date(year, month, 0).getDate()
   const daysPassed =
     year === today.getFullYear() && month === today.getMonth() + 1
       ? today.getDate()
       : daysInMonth
-  const pctExpected = ((daysPassed / daysInMonth) * 100)
+  const pctExpected = (daysPassed / daysInMonth) * 100
 
-  // Client-level summary
-  const clientSummary = clientBudgets.reduce(
+  // Client-level summary (active campaigns only)
+  const clientSummary = activeBudgets.reduce(
     (acc, b) => {
       const spend = campaignSpend(b, monthBudgets, accounts)
       const cf = calcCashflow(b.budget_total, spend, year, month)
@@ -103,9 +108,15 @@ export default function CashflowPage() {
     { budget: 0, spend: 0, daily: 0 }
   )
 
+  // Current daily rate (average spend per day so far)
+  const currentDailyRate = daysPassed > 0 ? clientSummary.spend / daysPassed : 0
+  const projectedEOM = currentDailyRate * daysInMonth
+  const isOverspending = clientSummary.budget > 0 && clientSummary.spend > clientSummary.budget
+  const projectionExceeds = clientSummary.budget > 0 && projectedEOM > clientSummary.budget * 1.05
+
   // Status dot color per client in sidebar
   function clientDotColor(clientName: string): string {
-    const cb = monthBudgets.filter((b) => b.client_name === clientName)
+    const cb = monthBudgets.filter((b) => b.client_name === clientName && !b.paused)
     if (cb.length === 0) return 'bg-gray-300'
     const totalBudget = cb.reduce((s, b) => s + b.budget_total, 0)
     const totalSpend = cb.reduce((s, b) => s + campaignSpend(b, monthBudgets, accounts), 0)
@@ -142,7 +153,43 @@ export default function CashflowPage() {
     )
   }
 
-  // For add modal: get account_id from existing campaigns of the client
+  const handlePause = async (entry: BudgetEntry) => {
+    const updated = { ...entry, paused: !entry.paused }
+    await fetch('/api/budgets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updated),
+    })
+    setBudgets((prev) => prev.map((b) =>
+      b.campaign_id === entry.campaign_id && b.year === year && b.month === month ? updated : b
+    ))
+  }
+
+  // Scale all active campaign budgets proportionally to a new total
+  const handleTotalSave = async () => {
+    const newTotal = parseFloat(totalInput.replace(/\./g, '').replace(',', '.'))
+    if (isNaN(newTotal) || newTotal <= 0) { setEditingTotal(false); return }
+    const currentTotal = activeBudgets.reduce((s, b) => s + b.budget_total, 0)
+    if (currentTotal === 0) { setEditingTotal(false); return }
+    const ratio = newTotal / currentTotal
+    const updated = activeBudgets.map((b) => ({
+      ...b,
+      budget_total: Math.round(b.budget_total * ratio),
+    }))
+    await Promise.all(updated.map((entry) =>
+      fetch('/api/budgets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(entry),
+      })
+    ))
+    setBudgets((prev) => prev.map((b) => {
+      const u = updated.find((u) => u.campaign_id === b.campaign_id && u.year === b.year && u.month === b.month)
+      return u ?? b
+    }))
+    setEditingTotal(false)
+  }
+
   function getClientAccountId(clientName: string): string {
     return monthBudgets.find((b) => b.client_name === clientName)?.account_id ?? ''
   }
@@ -209,7 +256,7 @@ export default function CashflowPage() {
                 return (
                   <button
                     key={client}
-                    onClick={() => setSelectedClient(client)}
+                    onClick={() => { setSelectedClient(client); setEditingTotal(false) }}
                     className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-left transition ${
                       isSelected
                         ? 'bg-blue-600 text-white font-semibold'
@@ -240,12 +287,50 @@ export default function CashflowPage() {
 
           {!loading && selectedClient && (
             <>
+              {/* Overspending alert */}
+              {isOverspending && (
+                <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-2.5 mb-4 text-sm">
+                  <AlertTriangle size={15} className="shrink-0" />
+                  <span><strong>¡Atención!</strong> El gasto ya superó el presupuesto total del mes.</span>
+                </div>
+              )}
+              {!isOverspending && projectionExceeds && (
+                <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-700 rounded-xl px-4 py-2.5 mb-4 text-sm">
+                  <AlertTriangle size={15} className="shrink-0" />
+                  <span>Al ritmo actual, el gasto proyectado al cierre es <strong>{currency(projectedEOM)}</strong> — podría superar el presupuesto.</span>
+                </div>
+              )}
+
               {/* Client summary */}
-              {clientBudgets.length > 0 && (
-                <div className="grid grid-cols-3 gap-3 mb-5">
+              {activeBudgets.length > 0 && (
+                <div className="grid grid-cols-4 gap-3 mb-5">
+                  {/* Presupuesto total editable */}
                   <div className="bg-white rounded-xl border border-gray-100 px-4 py-3">
                     <p className="text-xs text-gray-400 mb-0.5">Presupuesto total</p>
-                    <p className="text-base font-bold text-gray-900">{currency(clientSummary.budget)}</p>
+                    {editingTotal ? (
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <input
+                          autoFocus
+                          type="text"
+                          value={totalInput}
+                          onChange={(e) => setTotalInput(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') handleTotalSave(); if (e.key === 'Escape') setEditingTotal(false) }}
+                          className="w-full text-sm font-bold border border-blue-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        />
+                        <button onClick={handleTotalSave} className="text-blue-600 text-xs font-semibold hover:text-blue-700 shrink-0">OK</button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-base font-bold text-gray-900">{currency(clientSummary.budget)}</p>
+                        <button
+                          onClick={() => { setTotalInput(String(clientSummary.budget)); setEditingTotal(true) }}
+                          className="text-gray-300 hover:text-gray-500 transition"
+                          title="Editar presupuesto total"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <div className="bg-white rounded-xl border border-gray-100 px-4 py-3">
                     <p className="text-xs text-gray-400 mb-0.5">Gasto acumulado</p>
@@ -255,6 +340,11 @@ export default function CashflowPage() {
                         {((clientSummary.spend / clientSummary.budget) * 100).toFixed(1)}% del total
                       </p>
                     )}
+                  </div>
+                  <div className="bg-white rounded-xl border border-gray-100 px-4 py-3">
+                    <p className="text-xs text-gray-400 mb-0.5">Ritmo actual</p>
+                    <p className="text-base font-bold text-gray-900">{currency(currentDailyRate)}<span className="text-xs font-normal text-gray-400">/día</span></p>
+                    <p className="text-xs text-gray-400">Proyección: {currency(projectedEOM)}</p>
                   </div>
                   <div className="bg-blue-50 rounded-xl border border-blue-100 px-4 py-3">
                     <p className="text-xs text-blue-500 mb-0.5">Diario recomendado</p>
@@ -273,7 +363,8 @@ export default function CashflowPage() {
                     Meta Ads
                   </span>
                   <span className="text-xs text-gray-400">
-                    {clientBudgets.length} campaña{clientBudgets.length !== 1 ? 's' : ''}
+                    {activeBudgets.length} activa{activeBudgets.length !== 1 ? 's' : ''}
+                    {pausedBudgets.length > 0 && ` · ${pausedBudgets.length} pausada${pausedBudgets.length !== 1 ? 's' : ''}`}
                   </span>
                 </div>
                 <button
@@ -289,9 +380,9 @@ export default function CashflowPage() {
                 </button>
               </div>
 
-              {/* Campaign rows */}
+              {/* Active campaign rows */}
               <div className="space-y-2 mb-3">
-                {clientBudgets.map((b) => {
+                {activeBudgets.map((b) => {
                   const spend = campaignSpend(b, monthBudgets, accounts)
                   const cf = calcCashflow(b.budget_total, spend, year, month)
                   return (
@@ -301,14 +392,15 @@ export default function CashflowPage() {
                       cashflow={cf}
                       onEdit={() => setModal({ entry: b, clientName: b.client_name, accountId: b.account_id })}
                       onDelete={() => handleDelete(b.campaign_id)}
+                      onPause={() => handlePause(b)}
                     />
                   )
                 })}
               </div>
 
-              {/* Totals footer */}
-              {clientBudgets.length >= 2 && (
-                <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 grid grid-cols-4 gap-3 text-sm">
+              {/* Totals footer (active only) */}
+              {activeBudgets.length >= 2 && (
+                <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 grid grid-cols-4 gap-3 text-sm mb-4">
                   <div>
                     <p className="text-xs text-gray-400 mb-0.5">Total presupuesto</p>
                     <p className="font-bold text-gray-800">{currency(clientSummary.budget)}</p>
@@ -328,6 +420,31 @@ export default function CashflowPage() {
                     <p className="font-bold text-gray-800">{currency(clientSummary.daily)}/día</p>
                   </div>
                 </div>
+              )}
+
+              {/* Paused campaigns */}
+              {pausedBudgets.length > 0 && (
+                <>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5 px-1">
+                    Pausadas
+                  </p>
+                  <div className="space-y-1.5">
+                    {pausedBudgets.map((b) => {
+                      const spend = campaignSpend(b, monthBudgets, accounts)
+                      const cf = calcCashflow(b.budget_total, spend, year, month)
+                      return (
+                        <CampaignRow
+                          key={b.campaign_id}
+                          budget={b}
+                          cashflow={cf}
+                          onEdit={() => setModal({ entry: b, clientName: b.client_name, accountId: b.account_id })}
+                          onDelete={() => handleDelete(b.campaign_id)}
+                          onPause={() => handlePause(b)}
+                        />
+                      )
+                    })}
+                  </div>
+                </>
               )}
 
               {clientBudgets.length === 0 && (

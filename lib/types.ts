@@ -26,6 +26,7 @@ export interface BudgetEntry {
   year: number
   month: number
   budget_total: number
+  paused?: boolean
 }
 
 export interface GoalEntry {
