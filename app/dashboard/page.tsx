@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, CheckCircle, AlertTriangle, XCircle } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import DashboardCard from '@/components/DashboardCard'
 import type { AccountData, BudgetEntry } from '@/lib/types'
 
@@ -18,12 +18,12 @@ function currency(n: number) {
 
 export default function DashboardPage() {
   const today = new Date()
-  const [year, setYear] = useState(today.getFullYear())
-  const [month, setMonth] = useState(today.getMonth() + 1)
+  const [year, setYear]     = useState(today.getFullYear())
+  const [month, setMonth]   = useState(today.getMonth() + 1)
   const [accounts, setAccounts] = useState<AccountData[]>([])
-  const [budgets, setBudgets] = useState<BudgetEntry[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [budgets, setBudgets]   = useState<BudgetEntry[]>([])
+  const [loading, setLoading]   = useState(true)
+  const [error, setError]       = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -49,22 +49,29 @@ export default function DashboardPage() {
   const monthBudgets = budgets.filter((b) => b.year === year && b.month === month)
 
   const daysInMonth = new Date(year, month, 0).getDate()
-  const daysPassed =
+  const daysPassed  =
     year === today.getFullYear() && month === today.getMonth() + 1
       ? today.getDate()
       : daysInMonth
 
-  // Aggregate totals
-  const totalSpend = accounts.reduce((s, a) => s + a.spend, 0)
-  const totalBudget = monthBudgets.reduce((s, b) => s + b.budget_total, 0)
-  const activeAccounts = accounts.filter((a) => a.recent_spend > 0).length
-  const pausedAccounts = accounts.filter((a) => a.spend > 0 && a.recent_spend === 0).length
-  const inactiveAccounts = accounts.filter((a) => a.spend === 0).length
+  // Group budgets by client
+  const clients = Array.from(new Set(monthBudgets.map((b) => b.client_name))).sort()
 
-  // Separate configured vs unconfigured
-  const configuredAccounts = accounts.filter(
-    (a) => monthBudgets.some((b) => b.account_id === a.account_id)
-  )
+  // Summary totals
+  const totalMetaSpend   = accounts.filter(a => a.source === 'facebook').reduce((s, a) => s + a.spend, 0)
+  const totalGoogleSpend = accounts.filter(a => a.source === 'google_ads').reduce((s, a) => s + a.spend, 0)
+  const totalSpend       = totalMetaSpend + totalGoogleSpend
+
+  const totalMetaBudget   = monthBudgets.filter(b => b.source === 'facebook'   && !b.paused).reduce((s, b) => s + b.budget_total, 0)
+  const totalGoogleBudget = monthBudgets.filter(b => b.source === 'google_ads' && !b.paused).reduce((s, b) => s + b.budget_total, 0)
+  const totalBudget       = totalMetaBudget + totalGoogleBudget
+
+  // Account health counts (across all platforms)
+  const allAccountIds = Array.from(new Set(monthBudgets.map(b => b.account_id)))
+  const configuredAccounts = accounts.filter(a => allAccountIds.includes(a.account_id))
+  const activeCount  = configuredAccounts.filter(a => a.recent_spend > 0).length
+  const warningCount = configuredAccounts.filter(a => a.spend > 0 && a.recent_spend === 0).length
+  const noSpendCount = configuredAccounts.filter(a => a.spend === 0).length
 
   return (
     <div>
@@ -73,7 +80,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Dashboard General</h1>
           <p className="text-gray-500 text-sm mt-0.5">
-            Paneo de todas las cuentas Meta · {MONTHS[month - 1]} {year}
+            Meta Ads + Google Ads · {MONTHS[month - 1]} {year} · Día {daysPassed} de {daysInMonth}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -103,9 +110,7 @@ export default function DashboardPage() {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 mb-4 text-sm">
-          {error}
-        </div>
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 mb-4 text-sm">{error}</div>
       )}
 
       {/* Summary strip */}
@@ -121,33 +126,29 @@ export default function DashboardPage() {
           <div className="bg-white rounded-xl border border-gray-100 px-4 py-3">
             <p className="text-xs text-gray-400 mb-0.5">Presupuesto total</p>
             <p className="text-lg font-bold text-gray-900">{totalBudget > 0 ? currency(totalBudget) : '—'}</p>
-            {totalBudget > 0 && (
-              <p className="text-xs text-gray-400">{currency(totalBudget - totalSpend)} restante</p>
-            )}
-          </div>
-          <div className="bg-white rounded-xl border border-gray-100 px-4 py-3">
-            <p className="text-xs text-gray-400 mb-1">Estado de cuentas</p>
-            <div className="flex items-center gap-2 flex-wrap">
-              {activeAccounts > 0 && (
-                <span className="flex items-center gap-1 text-xs text-green-600 font-medium">
-                  <CheckCircle size={11} /> {activeAccounts} activas
-                </span>
-              )}
-              {pausedAccounts > 0 && (
-                <span className="flex items-center gap-1 text-xs text-amber-600 font-medium">
-                  <AlertTriangle size={11} /> {pausedAccounts} pausadas
-                </span>
-              )}
-              {inactiveAccounts > 0 && (
-                <span className="flex items-center gap-1 text-xs text-red-600 font-medium">
-                  <XCircle size={11} /> {inactiveAccounts} sin gasto
-                </span>
-              )}
+            <div className="flex gap-2 mt-0.5">
+              <span className="text-[10px] text-gray-400">
+                <span className="text-[#1877F2] font-medium">M</span> {currency(totalMetaBudget)}
+              </span>
+              <span className="text-[10px] text-gray-400">
+                <span className="text-[#4285F4] font-medium">G</span> {currency(totalGoogleBudget)}
+              </span>
             </div>
           </div>
           <div className="bg-white rounded-xl border border-gray-100 px-4 py-3">
-            <p className="text-xs text-gray-400 mb-0.5">Cuentas activas</p>
-            <p className="text-lg font-bold text-gray-900">{configuredAccounts.length}</p>
+            <p className="text-xs text-gray-400 mb-0.5">Restante</p>
+            <p className={`text-lg font-bold ${totalBudget - totalSpend < 0 ? 'text-red-600' : 'text-gray-900'}`}>
+              {totalBudget > 0 ? currency(totalBudget - totalSpend) : '—'}
+            </p>
+            <p className="text-xs text-gray-400">{clients.length} clientes</p>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-100 px-4 py-3">
+            <p className="text-xs text-gray-400 mb-1">Estado cuentas</p>
+            <div className="flex flex-col gap-0.5">
+              {activeCount > 0  && <span className="text-xs text-green-600 font-medium">● {activeCount} activas</span>}
+              {warningCount > 0 && <span className="text-xs text-amber-600 font-medium">● {warningCount} sin actividad reciente</span>}
+              {noSpendCount > 0 && <span className="text-xs text-red-600 font-medium">● {noSpendCount} sin gasto</span>}
+            </div>
           </div>
         </div>
       )}
@@ -156,37 +157,38 @@ export default function DashboardPage() {
       {loading && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1,2,3,4,5,6].map((i) => (
-            <div key={i} className="h-44 bg-white rounded-xl border border-gray-100 animate-pulse" />
+            <div key={i} className="h-52 bg-white rounded-xl border border-gray-100 animate-pulse" />
           ))}
         </div>
       )}
 
-      {/* Configured accounts */}
-      {!loading && configuredAccounts.length > 0 && (
-        <div className="mb-6">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-            Cuentas configuradas · {configuredAccounts.length}
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {configuredAccounts.map((account) => (
+      {/* Client cards */}
+      {!loading && clients.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {clients.map((client) => {
+            const clientBudgets = monthBudgets.filter((b) => b.client_name === client)
+            const metaAccountId   = clientBudgets.find(b => b.source === 'facebook')?.account_id
+            const googleAccountId = clientBudgets.find(b => b.source === 'google_ads')?.account_id
+            const metaAccount   = accounts.find(a => a.account_id === metaAccountId && a.source === 'facebook')
+            const googleAccount = accounts.find(a => a.account_id === googleAccountId && a.source === 'google_ads')
+            return (
               <DashboardCard
-                key={account.account_id}
-                account={account}
-                budgets={monthBudgets.filter((b) => b.account_id === account.account_id)}
-                year={year}
-                month={month}
+                key={client}
+                clientName={client}
+                metaAccount={metaAccount}
+                googleAccount={googleAccount}
+                budgets={clientBudgets}
                 daysPassed={daysPassed}
                 daysInMonth={daysInMonth}
               />
-            ))}
-          </div>
+            )
+          })}
         </div>
       )}
 
-      {/* Unconfigured accounts */}
-      {!loading && configuredAccounts.length === 0 && (
+      {!loading && clients.length === 0 && (
         <div className="flex items-center justify-center h-48 text-gray-400 text-sm">
-          No hay cuentas Meta disponibles en Windsor para este período
+          No hay clientes configurados para este período
         </div>
       )}
     </div>
