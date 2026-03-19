@@ -5,10 +5,7 @@ import { X } from 'lucide-react'
 import type { BudgetEntry } from '@/lib/types'
 
 interface Props {
-  entry: BudgetEntry | null  // null = adding new campaign
-  clientName: string
-  accountId: string
-  source: string
+  source: 'facebook' | 'google_ads'
   year: number
   month: number
   existingIds: string[]
@@ -28,30 +25,31 @@ function generateId(clientName: string, existingIds: string[]): string {
   return `${prefix}_${n}`
 }
 
-export default function CampaignFormModal({
-  entry, clientName, accountId, source, year, month, existingIds, onSave, onClose,
-}: Props) {
-  const [campaignName, setCampaignName] = useState(entry?.campaign_name ?? '')
-  const [budgetTotal, setBudgetTotal] = useState(String(entry?.budget_total ?? ''))
+export default function ClientFormModal({ source, year, month, existingIds, onSave, onClose }: Props) {
+  const [clientName, setClientName] = useState('')
+  const [accountId, setAccountId] = useState('')
+  const [campaignName, setCampaignName] = useState('')
+  const [budgetTotal, setBudgetTotal] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const isNew = entry === null
+  const platformLabel = source === 'facebook' ? 'Meta Ads' : 'Google Ads'
+  const platformColor = source === 'facebook' ? 'bg-[#1877F2]' : 'bg-[#4285F4]'
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!campaignName.trim() || !budgetTotal) return
+    if (!clientName.trim() || !accountId.trim() || !campaignName.trim() || !budgetTotal) return
     setSaving(true)
-    const newEntry: BudgetEntry = {
-      campaign_id: entry?.campaign_id ?? generateId(clientName, existingIds),
+    const entry: BudgetEntry = {
+      campaign_id: generateId(clientName, existingIds),
       campaign_name: campaignName.trim(),
-      client_name: clientName,
+      client_name: clientName.trim().toUpperCase(),
       source,
-      account_id: accountId,
+      account_id: accountId.trim(),
       year,
       month,
       budget_total: Number(budgetTotal),
     }
-    await onSave(newEntry)
+    await onSave(entry)
     setSaving(false)
   }
 
@@ -59,50 +57,68 @@ export default function CampaignFormModal({
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 className="font-bold text-gray-900">
-            {isNew ? 'Agregar campaña' : 'Editar campaña'}
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition"
-          >
+          <div className="flex items-center gap-2">
+            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full text-white ${platformColor}`}>
+              {platformLabel}
+            </span>
+            <h2 className="font-bold text-gray-900">Agregar cliente</h2>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition">
             <X size={18} />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 flex flex-col gap-4">
-          {/* Context */}
-          <div className="bg-gray-50 rounded-xl p-3.5">
-            <p className="text-xs text-gray-400 mb-0.5">Cliente · {source === 'facebook' ? 'Meta Ads' : 'Google Ads'}</p>
-            <p className="font-medium text-gray-800 text-sm">{clientName}</p>
-          </div>
-
-          {/* Campaign name */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Nombre de campaña <span className="text-red-500">*</span>
+              Nombre del cliente <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
-              value={campaignName}
-              onChange={(e) => setCampaignName(e.target.value)}
-              placeholder="Ej: BB | AO | Interacción | Rotomoldeo"
+              value={clientName}
+              onChange={(e) => setClientName(e.target.value)}
+              placeholder="Ej: DURAPLAS"
               className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               required
               autoFocus
             />
           </div>
 
-          {/* Budget */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Presupuesto — {MONTHS[month - 1]} {year}{' '}
-              <span className="text-red-500">*</span>
+              Account ID de {platformLabel} <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={accountId}
+              onChange={(e) => setAccountId(e.target.value)}
+              placeholder={source === 'facebook' ? 'Ej: 6060428597350960' : 'Ej: 959-198-0482'}
+              className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+              required
+            />
+            <p className="text-xs text-gray-400 mt-1">Lo encontrás en el administrador de anuncios de {platformLabel}.</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Primera campaña <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={campaignName}
+              onChange={(e) => setCampaignName(e.target.value)}
+              placeholder="Ej: Búsqueda | Marca"
+              className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Presupuesto mensual — {MONTHS[month - 1]} {year} <span className="text-red-500">*</span>
             </label>
             <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">
-                $
-              </span>
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">$</span>
               <input
                 type="number"
                 value={budgetTotal}
@@ -128,7 +144,7 @@ export default function CampaignFormModal({
               disabled={saving}
               className="flex-1 bg-blue-600 text-white rounded-xl py-2.5 text-sm font-medium hover:bg-blue-700 transition disabled:opacity-50"
             >
-              {saving ? 'Guardando...' : isNew ? 'Agregar campaña' : 'Guardar cambios'}
+              {saving ? 'Guardando...' : 'Agregar cliente'}
             </button>
           </div>
         </form>
