@@ -38,9 +38,9 @@ function campaignSpend(
   monthBudgets: BudgetEntry[],
   accounts: AccountData[]
 ): number {
-  const account = accounts.find((a) => a.account_id === budget.account_id)
+  const account = accounts.find((a) => a.account_id === budget.account_id && a.source === budget.source)
   if (!account) return 0
-  const activeBudgets = monthBudgets.filter((b) => b.account_id === budget.account_id && !b.paused)
+  const activeBudgets = monthBudgets.filter((b) => b.account_id === budget.account_id && b.source === budget.source && !b.paused)
   const accountTotalBudget = activeBudgets.reduce((s, b) => s + b.budget_total, 0)
   // If no budget configured, distribute spend equally among active campaigns
   if (accountTotalBudget === 0) return activeBudgets.length > 0 ? account.spend / activeBudgets.length : 0
