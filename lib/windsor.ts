@@ -58,7 +58,7 @@ async function fetchAccounts(
       map.set(r.account_id, {
         account_id: r.account_id,
         account_name: r.account_name ?? r.account_id,
-        source: sourceFilter,
+        source: sourceLabel,
         spend: 0,
         recent_spend: 0,
         campaign_count: 0,
