@@ -42,7 +42,8 @@ function campaignSpend(
   if (!account) return 0
   const activeBudgets = monthBudgets.filter((b) => b.account_id === budget.account_id && !b.paused)
   const accountTotalBudget = activeBudgets.reduce((s, b) => s + b.budget_total, 0)
-  if (accountTotalBudget === 0) return 0
+  // If no budget configured, distribute spend equally among active campaigns
+  if (accountTotalBudget === 0) return activeBudgets.length > 0 ? account.spend / activeBudgets.length : 0
   return (budget.budget_total / accountTotalBudget) * account.spend
 }
 
