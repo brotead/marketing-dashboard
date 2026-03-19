@@ -1,6 +1,7 @@
 import type { AccountData } from './types'
 
-const WINDSOR_BASE = 'https://connectors.windsor.ai/all'
+const WINDSOR_FACEBOOK = 'https://connectors.windsor.ai/facebook'
+const WINDSOR_GOOGLE   = 'https://connectors.windsor.ai/google_ads'
 
 interface RawRecord {
   campaign_id: string
@@ -16,7 +17,8 @@ export type { AccountData }
 async function fetchAccounts(
   year: number,
   month: number,
-  sourceFilter: string
+  connectorUrl: string,
+  sourceLabel: string
 ): Promise<AccountData[]> {
   const apiKey = process.env.WINDSOR_API_KEY
   if (!apiKey) throw new Error('WINDSOR_API_KEY no configurada')
@@ -32,7 +34,7 @@ async function fetchAccounts(
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
   const recentFrom = sevenDaysAgo.toISOString().split('T')[0]
 
-  const url = new URL(WINDSOR_BASE)
+  const url = new URL(connectorUrl)
   url.searchParams.set('api_key', apiKey)
   url.searchParams.set('date_from', dateFrom)
   url.searchParams.set('date_to', dateTo)
@@ -45,7 +47,7 @@ async function fetchAccounts(
   const json = await res.json()
   const records: RawRecord[] = json.data ?? []
 
-  const filtered = records.filter((r) => r.source === sourceFilter)
+  const filtered = records.filter((r) => r.source === sourceLabel)
 
   const map = new Map<string, AccountData>()
   const campaignSets = new Map<string, Set<string>>()
@@ -80,8 +82,8 @@ async function fetchAccounts(
 
 export async function fetchWindsorAccounts(year: number, month: number): Promise<AccountData[]> {
   const [meta, google] = await Promise.all([
-    fetchAccounts(year, month, 'facebook'),
-    fetchAccounts(year, month, 'google'),
+    fetchAccounts(year, month, WINDSOR_FACEBOOK, 'facebook'),
+    fetchAccounts(year, month, WINDSOR_GOOGLE,   'google'),
   ])
   return [...meta, ...google]
 }
