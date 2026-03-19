@@ -1,0 +1,30 @@
+[
+  { "campaign_id": "bb_1", "campaign_name": "BB | AO | Interaccion | Rotomoldeo", "client_name": "BB", "source": "facebook", "account_id": "6060428597350960", "year": 2026, "month": 3, "budget_total": 360000 },
+  { "campaign_id": "bb_2", "campaign_name": "BB | AO | Tráfico a IG | Seguidores", "client_name": "BB", "source": "facebook", "account_id": "6060428597350960", "year": 2026, "month": 3, "budget_total": 45000 },
+  { "campaign_id": "bb_3", "campaign_name": "BB | Interaccion | Bebederos", "client_name": "BB", "source": "facebook", "account_id": "6060428597350960", "year": 2026, "month": 3, "budget_total": 175000 },
+  { "campaign_id": "bb_4", "campaign_name": "BB | Interaccion | Países limitrofes", "client_name": "BB", "source": "facebook", "account_id": "6060428597350960", "year": 2026, "month": 3, "budget_total": 300000 },
+  { "campaign_id": "bb_5", "campaign_name": "BB | Interaccion | Expoagro", "client_name": "BB", "source": "facebook", "account_id": "6060428597350960", "year": 2026, "month": 3, "budget_total": 20000 },
+
+  { "campaign_id": "hsf_1", "campaign_name": "AO | Provincias | Mangueras | WA 7062", "client_name": "HSF", "source": "facebook", "account_id": "1093035255361568", "year": 2026, "month": 3, "budget_total": 80000 },
+  { "campaign_id": "hsf_2", "campaign_name": "AO | Provincias | Divisiones móviles | WA 3690", "client_name": "HSF", "source": "facebook", "account_id": "1093035255361568", "year": 2026, "month": 3, "budget_total": 160000 },
+  { "campaign_id": "hsf_3", "campaign_name": "AO | Provincias | Acoples | WA 7062", "client_name": "HSF", "source": "facebook", "account_id": "1093035255361568", "year": 2026, "month": 3, "budget_total": 160000 },
+
+  { "campaign_id": "maf_1", "campaign_name": "Franz | Alcance", "client_name": "MAFRALAC", "source": "facebook", "account_id": "1176825600926277", "year": 2026, "month": 3, "budget_total": 45000 },
+  { "campaign_id": "maf_2", "campaign_name": "Franz | Tráfico a IG", "client_name": "MAFRALAC", "source": "facebook", "account_id": "1176825600926277", "year": 2026, "month": 3, "budget_total": 310000 },
+  { "campaign_id": "maf_3", "campaign_name": "Mafralac | Mensajes - clientes potenciales", "client_name": "MAFRALAC", "source": "facebook", "account_id": "1176825600926277", "year": 2026, "month": 3, "budget_total": 45000 },
+
+  { "campaign_id": "dur_1", "campaign_name": "Duraplas | AO | Interacción | Mensajes WA", "client_name": "DURAPLAS", "source": "facebook", "account_id": "1280174358781483", "year": 2026, "month": 3, "budget_total": 405000 },
+  { "campaign_id": "dur_2", "campaign_name": "Duraplas | Tráfico IG | Seguidores", "client_name": "DURAPLAS", "source": "facebook", "account_id": "1280174358781483", "year": 2026, "month": 3, "budget_total": 95000 },
+
+  { "campaign_id": "fru_1", "campaign_name": "Frusso - Trafico IG", "client_name": "FRUSSO", "source": "facebook", "account_id": "354272955380102", "year": 2026, "month": 3, "budget_total": 200000 },
+
+  { "campaign_id": "evo_1", "campaign_name": "Evora | Mensajes AON", "client_name": "EVORA", "source": "facebook", "account_id": "1603903067656966", "year": 2026, "month": 3, "budget_total": 500000 },
+  { "campaign_id": "evo_2", "campaign_name": "Evora | Ventas AON", "client_name": "EVORA", "source": "facebook", "account_id": "1603903067656966", "year": 2026, "month": 3, "budget_total": 500000 },
+
+  { "campaign_id": "ami_1", "campaign_name": "Posteos promocionados | Tráfico a IG", "client_name": "AMIPACK", "source": "facebook", "account_id": "1501279357908771", "year": 2026, "month": 3, "budget_total": 50000 },
+  { "campaign_id": "ami_2", "campaign_name": "Posteos promocionados | Tráfico a FB", "client_name": "AMIPACK", "source": "facebook", "account_id": "1501279357908771", "year": 2026, "month": 3, "budget_total": 50000 },
+
+  { "campaign_id": "chi_1", "campaign_name": "Chialvo | Tráfico a IG", "client_name": "CHIALVO", "source": "facebook", "account_id": "1023685753258270", "year": 2026, "month": 3, "budget_total": 100000 },
+
+  { "campaign_id": "nut_1", "campaign_name": "Nutriar | Campaña", "client_name": "NUTRIAR", "source": "facebook", "account_id": "1688279834566905", "year": 2026, "month": 3, "budget_total": 1000000 }
+]

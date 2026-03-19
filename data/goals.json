@@ -1,0 +1,10 @@
+[
+  {
+    "client_name": "BB",
+    "kpi": "mensajes",
+    "year": 2026,
+    "month": 3,
+    "goal_value": 300,
+    "current_override": null
+  }
+]
