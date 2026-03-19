@@ -1,65 +1,55 @@
-import fs from 'fs'
-import path from 'path'
+import { supabase } from './supabase'
 import type { BudgetEntry, GoalEntry } from './types'
 
 export type { BudgetEntry, GoalEntry }
 
-const DATA_DIR = path.join(process.cwd(), 'data')
-
-function ensureDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true })
-}
-
-function read<T>(file: string, def: T): T {
-  ensureDir()
-  const p = path.join(DATA_DIR, file)
-  if (!fs.existsSync(p)) return def
-  try { return JSON.parse(fs.readFileSync(p, 'utf-8')) } catch { return def }
-}
-
-function write<T>(file: string, data: T) {
-  ensureDir()
-  fs.writeFileSync(path.join(DATA_DIR, file), JSON.stringify(data, null, 2), 'utf-8')
-}
-
 // ── Budgets ────────────────────────────────────────────────────────────────────
 
-export function getBudgets(): BudgetEntry[] {
-  return read<BudgetEntry[]>('budgets.json', [])
+export async function getBudgets(): Promise<BudgetEntry[]> {
+  const { data, error } = await supabase.from('budgets').select('*')
+  if (error) throw new Error(error.message)
+  return data ?? []
 }
 
-export function upsertBudget(entry: BudgetEntry) {
-  const all = getBudgets()
-  const idx = all.findIndex((b) => b.campaign_id === entry.campaign_id && b.year === entry.year && b.month === entry.month)
-  if (idx >= 0) all[idx] = entry
-  else all.push(entry)
-  write('budgets.json', all)
+export async function upsertBudget(entry: BudgetEntry): Promise<void> {
+  const { error } = await supabase
+    .from('budgets')
+    .upsert(entry, { onConflict: 'campaign_id,year,month' })
+  if (error) throw new Error(error.message)
 }
 
-export function removeBudget(campaignId: string, year: number, month: number) {
-  write('budgets.json', getBudgets().filter(
-    (b) => !(b.campaign_id === campaignId && b.year === year && b.month === month)
-  ))
+export async function removeBudget(campaignId: string, year: number, month: number): Promise<void> {
+  const { error } = await supabase
+    .from('budgets')
+    .delete()
+    .eq('campaign_id', campaignId)
+    .eq('year', year)
+    .eq('month', month)
+  if (error) throw new Error(error.message)
 }
 
 // ── Goals ──────────────────────────────────────────────────────────────────────
 
-export function getGoals(): GoalEntry[] {
-  return read<GoalEntry[]>('goals.json', [])
+export async function getGoals(): Promise<GoalEntry[]> {
+  const { data, error } = await supabase.from('goals').select('*')
+  if (error) throw new Error(error.message)
+  return data ?? []
 }
 
-export function upsertGoal(entry: GoalEntry) {
-  const all = getGoals()
-  const idx = all.findIndex(
-    (g) => g.client_name === entry.client_name && g.year === entry.year && g.month === entry.month && g.kpi === entry.kpi
-  )
-  if (idx >= 0) all[idx] = entry
-  else all.push(entry)
-  write('goals.json', all)
+export async function upsertGoal(entry: GoalEntry): Promise<void> {
+  const { error } = await supabase
+    .from('goals')
+    .upsert(entry, { onConflict: 'client_name,year,month,kpi' })
+  if (error) throw new Error(error.message)
 }
 
-export function removeGoal(clientName: string, year: number, month: number, kpi: string) {
-  write('goals.json', getGoals().filter(
-    (g) => !(g.client_name === clientName && g.year === year && g.month === month && g.kpi === kpi)
-  ))
+export async function removeGoal(clientName: string, year: number, month: number, kpi: string): Promise<void> {
+  const { error } = await supabase
+    .from('goals')
+    .delete()
+    .eq('client_name', clientName)
+    .eq('year', year)
+    .eq('month', month)
+    .eq('kpi', kpi)
+  if (error) throw new Error(error.message)
 }
