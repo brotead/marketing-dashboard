@@ -1,7 +1,7 @@
 import { supabase } from './supabase'
-import type { BudgetEntry, GoalEntry } from './types'
+import type { BudgetEntry, GoalEntry, Task, ChangelogEntry } from './types'
 
-export type { BudgetEntry, GoalEntry }
+export type { BudgetEntry, GoalEntry, Task, ChangelogEntry }
 
 // ── Budgets ────────────────────────────────────────────────────────────────────
 
@@ -51,5 +51,57 @@ export async function removeGoal(clientName: string, year: number, month: number
     .eq('year', year)
     .eq('month', month)
     .eq('kpi', kpi)
+  if (error) throw new Error(error.message)
+}
+
+// ── Tasks ───────────────────────────────────────────────────────────────────────
+
+export async function getTasks(): Promise<Task[]> {
+  const { data, error } = await supabase
+    .from('tasks')
+    .select('*')
+    .order('created_at', { ascending: false })
+  if (error) throw new Error(error.message)
+  return data ?? []
+}
+
+export async function createTask(task: Omit<Task, 'id' | 'created_at'>): Promise<Task> {
+  const { data, error } = await supabase
+    .from('tasks').insert(task).select().single()
+  if (error) throw new Error(error.message)
+  return data
+}
+
+export async function updateTask(id: string, updates: Partial<Pick<Task, 'status' | 'priority' | 'title' | 'due_date'>>): Promise<void> {
+  const { error } = await supabase.from('tasks').update(updates).eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+export async function deleteTask(id: string): Promise<void> {
+  const { error } = await supabase.from('tasks').delete().eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+// ── Changelog ───────────────────────────────────────────────────────────────────
+
+export async function getChangelog(): Promise<ChangelogEntry[]> {
+  const { data, error } = await supabase
+    .from('changelog')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(300)
+  if (error) throw new Error(error.message)
+  return data ?? []
+}
+
+export async function createChangelogEntry(entry: Omit<ChangelogEntry, 'id' | 'created_at'>): Promise<ChangelogEntry> {
+  const { data, error } = await supabase
+    .from('changelog').insert(entry).select().single()
+  if (error) throw new Error(error.message)
+  return data
+}
+
+export async function deleteChangelogEntry(id: string): Promise<void> {
+  const { error } = await supabase.from('changelog').delete().eq('id', id)
   if (error) throw new Error(error.message)
 }

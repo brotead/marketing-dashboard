@@ -1,7 +1,8 @@
-import type { AccountData } from './types'
+import type { AccountData, AdCreative, FatigueAd, FatigueSignal } from './types'
 
-const WINDSOR_FACEBOOK = 'https://connectors.windsor.ai/facebook'
-const WINDSOR_GOOGLE   = 'https://connectors.windsor.ai/google_ads'
+const WINDSOR_FACEBOOK  = 'https://connectors.windsor.ai/facebook'
+const WINDSOR_GOOGLE    = 'https://connectors.windsor.ai/google_ads'
+const WINDSOR_INSTAGRAM = 'https://connectors.windsor.ai/instagram'
 
 interface RawRecord {
   campaign_id: string
@@ -80,6 +81,414 @@ async function fetchAccounts(
   return Array.from(map.values()).sort((a, b) => b.spend - a.spend)
 }
 
+// ── Conversations (Mensajes) per Facebook account ──────────────────────────────
+export async function fetchConversationsByAccount(
+  year: number,
+  month: number
+): Promise<Record<string, number>> {
+  const apiKey = process.env.WINDSOR_API_KEY
+  if (!apiKey) throw new Error('WINDSOR_API_KEY no configurada')
+
+  const dateFrom = `${year}-${String(month).padStart(2, '0')}-01`
+  const today = new Date()
+  const isCurrentMonth = year === today.getFullYear() && month === today.getMonth() + 1
+  const dateTo = isCurrentMonth
+    ? today.toISOString().split('T')[0]
+    : new Date(year, month, 0).toISOString().split('T')[0]
+
+  const url = new URL(WINDSOR_FACEBOOK)
+  url.searchParams.set('api_key', apiKey)
+  url.searchParams.set('date_from', dateFrom)
+  url.searchParams.set('date_to', dateTo)
+  url.searchParams.set('fields', 'account_id,actions')
+  url.searchParams.set('_renderer', 'json')
+
+  const res = await fetch(url.toString(), { cache: 'no-store' })
+  if (!res.ok) throw new Error(`Windsor Facebook error ${res.status}`)
+
+  const json = await res.json()
+  const records: { account_id: string; actions?: { action_type: string; value: string }[] }[] =
+    json.data ?? []
+
+  const result: Record<string, number> = {}
+  for (const r of records) {
+    if (!r.account_id) continue
+    const conv = r.actions?.find(
+      (a) => a.action_type === 'onsite_conversion.messaging_conversation_started_7d'
+    )
+    if (conv) result[r.account_id] = (result[r.account_id] ?? 0) + Number(conv.value)
+  }
+  return result
+}
+
+// ── Instagram current followers ─────────────────────────────────────────────────
+export interface IgFollowerEntry {
+  account_id: string
+  account_name: string
+  followers_count: number
+}
+
+export async function fetchIgFollowersCurrent(): Promise<IgFollowerEntry[]> {
+  const apiKey = process.env.WINDSOR_API_KEY
+  if (!apiKey) throw new Error('WINDSOR_API_KEY no configurada')
+
+  const today = new Date().toISOString().split('T')[0]
+  const url = new URL(WINDSOR_INSTAGRAM)
+  url.searchParams.set('api_key', apiKey)
+  url.searchParams.set('date_from', today)
+  url.searchParams.set('date_to', today)
+  url.searchParams.set('fields', 'account_id,account_name,followers_count')
+  url.searchParams.set('_renderer', 'json')
+
+  const res = await fetch(url.toString(), { cache: 'no-store' })
+  if (!res.ok) throw new Error(`Windsor Instagram error ${res.status}`)
+
+  const json = await res.json()
+  return (json.data ?? []).map((r: Record<string, unknown>) => ({
+    account_id: String(r.account_id ?? ''),
+    account_name: String(r.account_name ?? ''),
+    followers_count: Number(r.followers_count) || 0,
+  }))
+}
+
+// ── Ad creatives (ad-level daily breakdown) ─────────────────────────────────────
+export async function fetchAdCreatives(year: number, month: number): Promise<AdCreative[]> {
+  const apiKey = process.env.WINDSOR_API_KEY
+  if (!apiKey) throw new Error('WINDSOR_API_KEY no configurada')
+
+  const dateFrom = `${year}-${String(month).padStart(2, '0')}-01`
+  const today = new Date()
+  const isCurrentMonth = year === today.getFullYear() && month === today.getMonth() + 1
+  const dateTo = isCurrentMonth
+    ? today.toISOString().split('T')[0]
+    : new Date(year, month, 0).toISOString().split('T')[0]
+
+  const url = new URL(WINDSOR_FACEBOOK)
+  url.searchParams.set('api_key', apiKey)
+  url.searchParams.set('date_from', dateFrom)
+  url.searchParams.set('date_to', dateTo)
+  url.searchParams.set('fields', 'ad_id,ad_name,campaign_name,account_id,spend,clicks,impressions,actions,date')
+  url.searchParams.set('_renderer', 'json')
+
+  const res = await fetch(url.toString(), { cache: 'no-store' })
+  if (!res.ok) throw new Error(`Windsor Facebook error ${res.status}`)
+
+  const json = await res.json()
+  const records: {
+    ad_id?: string
+    ad_name?: string
+    campaign_name?: string
+    account_id?: string
+    spend?: number | null
+    clicks?: number | null
+    impressions?: number | null
+    actions?: { action_type: string; value: string }[]
+    date?: string
+  }[] = json.data ?? []
+
+  interface AdAgg {
+    ad_id: string
+    ad_name: string
+    campaign_name: string
+    account_id: string
+    spend: number
+    clicks: number
+    impressions: number
+    mensajes: number
+    dates: Set<string>
+    first_date: string
+    last_date: string
+  }
+
+  const map = new Map<string, AdAgg>()
+
+  for (const r of records) {
+    if (!r.ad_id || !r.account_id) continue
+    const spend = r.spend ?? 0
+    if (spend <= 0) continue
+
+    if (!map.has(r.ad_id)) {
+      map.set(r.ad_id, {
+        ad_id: r.ad_id,
+        ad_name: r.ad_name ?? r.ad_id,
+        campaign_name: r.campaign_name ?? '',
+        account_id: r.account_id,
+        spend: 0,
+        clicks: 0,
+        impressions: 0,
+        mensajes: 0,
+        dates: new Set(),
+        first_date: r.date ?? dateTo,
+        last_date: r.date ?? dateFrom,
+      })
+    }
+
+    const agg = map.get(r.ad_id)!
+    agg.spend += spend
+    agg.clicks += r.clicks ?? 0
+    agg.impressions += r.impressions ?? 0
+
+    const conv = r.actions?.find(
+      (a) => a.action_type === 'onsite_conversion.messaging_conversation_started_7d'
+    )
+    if (conv) agg.mensajes += Number(conv.value)
+
+    if (r.date) {
+      agg.dates.add(r.date)
+      if (r.date < agg.first_date) agg.first_date = r.date
+      if (r.date > agg.last_date) agg.last_date = r.date
+    }
+  }
+
+  const todayStr = today.toISOString().split('T')[0]
+
+  return Array.from(map.values())
+    .map((agg): AdCreative => {
+      const days_active = agg.dates.size
+      const ctr = agg.impressions > 0 ? (agg.clicks / agg.impressions) * 100 : 0
+      const cpm = agg.impressions > 0 ? (agg.spend / agg.impressions) * 1000 : 0
+      const cpr = agg.mensajes > 0 ? agg.spend / agg.mensajes : 0
+
+      const firstDate = new Date(agg.first_date + 'T00:00:00')
+      const refDate   = new Date(todayStr + 'T00:00:00')
+      const daysSinceStart = Math.max(0, Math.floor((refDate.getTime() - firstDate.getTime()) / 86_400_000))
+
+      let fatigue: AdCreative['fatigue']
+      if (daysSinceStart >= 21 || (ctr < 0.5 && days_active >= 7)) {
+        fatigue = 'fatigue'
+      } else if (daysSinceStart >= 14) {
+        fatigue = 'review'
+      } else {
+        fatigue = 'active'
+      }
+
+      return {
+        ad_id: agg.ad_id,
+        ad_name: agg.ad_name,
+        campaign_name: agg.campaign_name,
+        account_id: agg.account_id,
+        spend: agg.spend,
+        clicks: agg.clicks,
+        impressions: agg.impressions,
+        mensajes: agg.mensajes,
+        first_date: agg.first_date,
+        last_date: agg.last_date,
+        days_active,
+        ctr,
+        cpm,
+        cpr,
+        fatigue,
+      }
+    })
+    .sort((a, b) => b.spend - a.spend)
+}
+
+// ── Fatigue detector ────────────────────────────────────────────────────────────
+
+interface RawAdPeriod {
+  ad_id?: string
+  ad_name?: string
+  account_id?: string
+  account_name?: string
+  campaign_name?: string
+  adset_name?: string
+  ad_effective_status?: string | null
+  adset_effective_status?: string | null
+  thumbnail_url?: string | null
+  spend?: string | number | null
+  impressions?: string | number | null
+  clicks?: string | number | null
+  frequency?: string | number | null
+  actions?: { action_type: string; value: string }[]
+}
+
+interface AdPeriodAgg {
+  ad_id: string
+  ad_name: string
+  account_id: string
+  account_name: string
+  campaign_name: string
+  adset_name: string
+  spend: number
+  impressions: number
+  clicks: number
+  frequency: number
+  ctr: number  // computed as clicks/impressions*100
+  cpm: number  // computed as spend/impressions*1000
+  conversions: number
+  thumbnail_url: string | null
+}
+
+function extractConversions(actions?: { action_type: string; value: string }[]): number {
+  if (!actions) return 0
+  const CONV_TYPES = [
+    'purchase', 'offsite_conversion.fb_pixel_purchase',
+    'lead',     'offsite_conversion.fb_pixel_lead',
+    'complete_registration', 'offsite_conversion.fb_pixel_complete_registration',
+    'onsite_conversion.messaging_conversation_started_7d',
+  ]
+  for (const t of CONV_TYPES) {
+    const found = actions.find(a => a.action_type === t)
+    if (found) return Number(found.value) || 0
+  }
+  return 0
+}
+
+async function fetchAdPeriod(dateFrom: string, dateTo: string, allowedIds?: Set<string>): Promise<Map<string, AdPeriodAgg>> {
+  const apiKey = process.env.WINDSOR_API_KEY
+  if (!apiKey) throw new Error('WINDSOR_API_KEY no configurada')
+
+  const url = new URL(WINDSOR_FACEBOOK)
+  url.searchParams.set('api_key', apiKey)
+  url.searchParams.set('date_from', dateFrom)
+  url.searchParams.set('date_to', dateTo)
+  url.searchParams.set('fields', 'ad_id,ad_name,account_id,account_name,campaign_name,adset_name,ad_effective_status,adset_effective_status,thumbnail_url,spend,impressions,clicks,frequency,actions')
+  url.searchParams.set('_renderer', 'json')
+
+  const res = await fetch(url.toString(), { cache: 'no-store' })
+  if (!res.ok) throw new Error(`Windsor error ${res.status}: ${await res.text()}`)
+
+  const json = await res.json()
+  const records: RawAdPeriod[] = json.data ?? []
+
+  const map = new Map<string, AdPeriodAgg>()
+  for (const r of records) {
+    if (!r.ad_id) continue
+    const spend = Number(r.spend ?? 0)
+    if (spend <= 0) continue
+
+    // Exclude paused ads and ads in paused adsets/campaigns
+    if (r.ad_effective_status && r.ad_effective_status !== 'ACTIVE') continue
+    if (r.adset_effective_status && r.adset_effective_status !== 'ACTIVE') continue
+
+    if (allowedIds && allowedIds.size > 0 && r.account_id && !allowedIds.has(r.account_id)) continue
+
+    if (!map.has(r.ad_id)) {
+      map.set(r.ad_id, {
+        ad_id:        r.ad_id,
+        ad_name:      r.ad_name      ?? r.ad_id,
+        account_id:   r.account_id   ?? '',
+        account_name: r.account_name ?? '',
+        campaign_name:r.campaign_name ?? '',
+        adset_name:   r.adset_name   ?? '',
+        spend:         0,
+        impressions:   0,
+        clicks:        0,
+        frequency:     0,
+        ctr:           0,
+        cpm:           0,
+        conversions:   0,
+        thumbnail_url: r.thumbnail_url ?? null,
+      })
+    }
+    const agg = map.get(r.ad_id)!
+    agg.spend       += spend
+    agg.impressions += Number(r.impressions ?? 0)
+    agg.clicks      += Number(r.clicks ?? 0)
+    agg.conversions += extractConversions(r.actions)
+    if (Number(r.frequency ?? 0) > 0) agg.frequency = Number(r.frequency)
+    if (!agg.thumbnail_url && r.thumbnail_url) agg.thumbnail_url = r.thumbnail_url
+  }
+
+  // Compute CTR and CPM from aggregated totals — always accurate, no nulls
+  for (const agg of Array.from(map.values())) {
+    agg.ctr = agg.impressions > 0 ? (agg.clicks / agg.impressions) * 100 : 0
+    agg.cpm = agg.impressions > 0 ? (agg.spend / agg.impressions) * 1000 : 0
+  }
+
+  return map
+}
+
+export async function fetchFatigueAds(allowedAccountIds?: Set<string>): Promise<FatigueAd[]> {
+  const today  = new Date()
+  const d7     = new Date(today); d7.setDate(d7.getDate() - 7)
+  const d14    = new Date(today); d14.setDate(d14.getDate() - 14)
+  const d7minus1 = new Date(d7); d7minus1.setDate(d7minus1.getDate() - 1)
+  const fmt = (d: Date) => d.toISOString().split('T')[0]
+
+  const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
+
+  const [recentMap, prevMap, monthMap] = await Promise.all([
+    fetchAdPeriod(fmt(d7), fmt(today), allowedAccountIds),
+    fetchAdPeriod(fmt(d14), fmt(d7minus1), allowedAccountIds),
+    fetchAdPeriod(fmt(firstOfMonth), fmt(today), allowedAccountIds),
+  ])
+
+  const results: FatigueAd[] = []
+
+  for (const [adId, recent] of Array.from(recentMap.entries())) {
+    if (recent.spend < 5) continue   // filter ads without meaningful spend
+
+    const prev = prevMap.get(adId) ?? null
+    const signals: FatigueSignal[] = []
+
+    // Signal 1: Frequency >= 4.0
+    if (recent.frequency >= 4.0) {
+      signals.push({ type: 'frequency', label: 'Alta frecuencia', detail: `${recent.frequency.toFixed(1)}x` })
+    }
+
+    // Signal 2: CTR dropped > 35%
+    if (prev && prev.ctr > 0) {
+      const drop = (prev.ctr - recent.ctr) / prev.ctr
+      if (drop > 0.35) {
+        signals.push({ type: 'ctr_drop', label: 'CTR cayó', detail: `-${(drop * 100).toFixed(0)}%` })
+      }
+    }
+
+    // Signal 3: CPA rose > 30% (only if both periods have conversions)
+    const cpa_recent = recent.conversions > 0 ? recent.spend / recent.conversions : 0
+    const cpa_prev   = prev && prev.conversions > 0 ? prev.spend / prev.conversions : 0
+    if (cpa_prev > 0 && cpa_recent > 0) {
+      const rise = (cpa_recent - cpa_prev) / cpa_prev
+      if (rise > 0.30) {
+        signals.push({ type: 'cpa_rise', label: 'CPA subió', detail: `+${(rise * 100).toFixed(0)}%` })
+      }
+    }
+
+    // Signal 4: CPM rose > 25%
+    if (prev && prev.cpm > 0 && recent.cpm > 0) {
+      const rise = (recent.cpm - prev.cpm) / prev.cpm
+      if (rise > 0.25) {
+        signals.push({ type: 'cpm_rise', label: 'CPM subió', detail: `+${(rise * 100).toFixed(0)}%` })
+      }
+    }
+
+    const signal_count = signals.length
+    const recommendation: FatigueAd['recommendation'] =
+      signal_count >= 2 ? 'PAUSAR' : signal_count === 1 ? 'REVISAR' : 'ACTIVO'
+
+    results.push({
+      ad_id:             adId,
+      ad_name:           recent.ad_name,
+      account_name:      recent.account_name,
+      campaign_name:     recent.campaign_name,
+      adset_name:        recent.adset_name,
+      spend_recent:      recent.spend,
+      impressions_recent:recent.impressions,
+      frequency_recent:  recent.frequency,
+      ctr_recent:        recent.ctr,
+      cpm_recent:        recent.cpm,
+      conversions_recent:recent.conversions,
+      ctr_prev:          prev?.ctr ?? 0,
+      cpm_prev:          prev?.cpm ?? 0,
+      cpa_prev,
+      cpa_recent,
+      signals,
+      signal_count,
+      recommendation,
+      spend_projection: recent.spend,
+      spend_month: monthMap.get(adId)?.spend ?? recent.spend,
+      thumbnail_url: recent.thumbnail_url ?? null,
+    })
+  }
+
+  // Sort: most signals first, then by spend
+  results.sort((a, b) => b.signal_count - a.signal_count || b.spend_recent - a.spend_recent)
+
+  return results
+}
+
+// ── Spend accounts ──────────────────────────────────────────────────────────────
 export async function fetchWindsorAccounts(year: number, month: number): Promise<AccountData[]> {
   const [meta, google] = await Promise.all([
     fetchAccounts(year, month, WINDSOR_FACEBOOK, 'facebook'),

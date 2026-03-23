@@ -57,21 +57,26 @@ export default function DashboardPage() {
   // Group budgets by client
   const clients = Array.from(new Set(monthBudgets.map((b) => b.client_name))).sort()
 
-  // Summary totals
-  const totalMetaSpend   = accounts.filter(a => a.source === 'facebook').reduce((s, a) => s + a.spend, 0)
-  const totalGoogleSpend = accounts.filter(a => a.source === 'google').reduce((s, a) => s + a.spend, 0)
+  // Summary totals — only accounts mapped to configured clients
+  const configuredMetaIds   = new Set(monthBudgets.filter(b => b.source === 'facebook').map(b => b.account_id))
+  const configuredGoogleIds = new Set(monthBudgets.filter(b => b.source === 'google').map(b => b.account_id))
+  const totalMetaSpend   = accounts.filter(a => a.source === 'facebook' && configuredMetaIds.has(a.account_id)).reduce((s, a) => s + a.spend, 0)
+  const totalGoogleSpend = accounts.filter(a => a.source === 'google'   && configuredGoogleIds.has(a.account_id)).reduce((s, a) => s + a.spend, 0)
   const totalSpend       = totalMetaSpend + totalGoogleSpend
 
   const totalMetaBudget   = monthBudgets.filter(b => b.source === 'facebook'   && !b.paused).reduce((s, b) => s + b.budget_total, 0)
   const totalGoogleBudget = monthBudgets.filter(b => b.source === 'google' && !b.paused).reduce((s, b) => s + b.budget_total, 0)
   const totalBudget       = totalMetaBudget + totalGoogleBudget
 
-  // Account health counts (across all platforms)
-  const allAccountIds = Array.from(new Set(monthBudgets.map(b => b.account_id)))
-  const configuredAccounts = accounts.filter(a => allAccountIds.includes(a.account_id))
-  const activeCount  = configuredAccounts.filter(a => a.recent_spend > 0).length
-  const warningCount = configuredAccounts.filter(a => a.spend > 0 && a.recent_spend === 0).length
-  const noSpendCount = configuredAccounts.filter(a => a.spend === 0).length
+  // Active client count: clients that have any Meta or Google spend this period
+  const activeCount = clients.filter((client) => {
+    const clientBudgets = monthBudgets.filter(b => b.client_name === client)
+    const metaAccountId   = clientBudgets.find(b => b.source === 'facebook')?.account_id
+    const googleAccountId = clientBudgets.find(b => b.source === 'google')?.account_id
+    const metaSpend   = accounts.find(a => a.account_id === metaAccountId)?.spend ?? 0
+    const googleSpend = accounts.find(a => a.account_id === googleAccountId)?.spend ?? 0
+    return metaSpend + googleSpend > 0
+  }).length
 
   return (
     <div>
@@ -143,12 +148,9 @@ export default function DashboardPage() {
             <p className="text-xs text-gray-400">{clients.length} clientes</p>
           </div>
           <div className="bg-white rounded-xl border border-gray-100 px-4 py-3">
-            <p className="text-xs text-gray-400 mb-1">Estado cuentas</p>
-            <div className="flex flex-col gap-0.5">
-              {activeCount > 0  && <span className="text-xs text-green-600 font-medium">● {activeCount} activas</span>}
-              {warningCount > 0 && <span className="text-xs text-amber-600 font-medium">● {warningCount} sin actividad reciente</span>}
-              {noSpendCount > 0 && <span className="text-xs text-red-600 font-medium">● {noSpendCount} sin gasto</span>}
-            </div>
+            <p className="text-xs text-gray-400 mb-1">Clientes activos</p>
+            <p className="text-lg font-bold text-gray-900">{activeCount}</p>
+            <p className="text-xs text-gray-400">de {clients.length} configurados</p>
           </div>
         </div>
       )}

@@ -1,22 +1,23 @@
 'use client'
 
 import { useState } from 'react'
-import { Settings, Trash2, CheckCircle2, XCircle, AlertCircle, Edit3 } from 'lucide-react'
+import { Settings, Trash2, CheckCircle2, XCircle, AlertCircle, Edit3, Zap } from 'lucide-react'
 import type { GoalEntry, PacingResult } from '@/lib/types'
 
 interface Props {
   goal: GoalEntry
   pacing: PacingResult
-  autoValue: number
+  autoValue: number | null   // null = no auto source available
+  autoSource: string | null  // e.g. 'Windsor Meta', 'Windsor IG', 'Google Ads'
   onEdit: () => void
   onDelete: () => void
   onUpdateOverride: (val: number | null) => void
 }
 
 const KPI_LABEL: Record<GoalEntry['kpi'], string> = {
-  mensajes: 'Mensajes WA',
-  seguidores: 'Seguidores IG',
-  conversiones: 'Conversiones Google',
+  mensajes:    'Mensajes WA',
+  seguidores:  'Seguidores IG',
+  conversiones:'Conversiones Google',
 }
 
 const STATUS = {
@@ -37,15 +38,17 @@ const STATUS = {
   },
 }
 
-export default function PacingCard({ goal, pacing, autoValue, onEdit, onDelete, onUpdateOverride }: Props) {
-  const [editing, setEditing] = useState(false)
-  const [tempVal, setTempVal] = useState(String(goal.current_override ?? ''))
+export default function PacingCard({
+  goal, pacing, autoValue, autoSource, onEdit, onDelete, onUpdateOverride,
+}: Props) {
+  const [editing,  setEditing]  = useState(false)
+  const [tempVal,  setTempVal]  = useState(String(goal.current_override ?? ''))
 
-  const cfg = STATUS[pacing.status]
+  const cfg      = STATUS[pacing.status]
   const isManual = goal.current_override != null
-  const isAutoKpi = goal.kpi === 'conversiones'
+  const isAuto   = !isManual && autoValue !== null
 
-  const barWidth = Math.min(pacing.goalValue > 0 ? (pacing.currentValue / pacing.goalValue) * 100 : 0, 100)
+  const barWidth         = Math.min(pacing.goalValue > 0 ? (pacing.currentValue / pacing.goalValue) * 100 : 0, 100)
   const expectedBarWidth = Math.min(pacing.goalValue > 0 ? (pacing.expectedToDate / pacing.goalValue) * 100 : 0, 100)
 
   const handleSave = () => {
@@ -67,8 +70,14 @@ export default function PacingCard({ goal, pacing, autoValue, onEdit, onDelete, 
             <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-full font-medium">
               {KPI_LABEL[goal.kpi]}
             </span>
+            {isAuto && (
+              <span className="bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                <Zap size={9} />
+                Auto
+              </span>
+            )}
             {isManual && (
-              <span className="bg-blue-100 text-blue-600 text-xs px-2 py-0.5 rounded-full font-medium">
+              <span className="bg-orange-100 text-orange-600 text-xs px-2 py-0.5 rounded-full font-medium">
                 Manual
               </span>
             )}
@@ -134,15 +143,15 @@ export default function PacingCard({ goal, pacing, autoValue, onEdit, onDelete, 
           <div className="flex items-center justify-between gap-2">
             <div>
               <p className="text-xs text-gray-500">
-                {isAutoKpi && !isManual
-                  ? 'Conversiones Google (automático)'
+                {isAuto
+                  ? `${autoSource} (automático)`
                   : isManual
                   ? 'Valor ingresado manualmente'
                   : 'Sin datos — ingresá el valor manualmente'}
               </p>
               <p className="text-sm font-semibold text-gray-900">
-                {isAutoKpi && !isManual
-                  ? autoValue > 0 ? `${autoValue.toLocaleString()} conversiones` : 'Sin conversiones registradas'
+                {isAuto
+                  ? `${autoValue?.toLocaleString()} ${KPI_LABEL[goal.kpi].toLowerCase()}`
                   : isManual
                   ? goal.current_override?.toLocaleString()
                   : '—'}
@@ -153,7 +162,7 @@ export default function PacingCard({ goal, pacing, autoValue, onEdit, onDelete, 
               className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium shrink-0"
             >
               <Edit3 size={11} />
-              {isManual ? 'Editar' : 'Ingresar'}
+              {isManual ? 'Editar' : 'Forzar valor'}
             </button>
           </div>
         ) : (
