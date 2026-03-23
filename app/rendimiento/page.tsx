@@ -1,11 +1,19 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { RefreshCw, Plus } from 'lucide-react'
 import PacingCard from '@/components/PacingCard'
 import GoalModal from '@/components/GoalModal'
-import type { CampaignData, GoalEntry, BudgetEntry } from '@/lib/types'
+import type { GoalEntry, BudgetEntry, CampaignData } from '@/lib/types'
+import type { IgFollowerEntry } from '@/lib/windsor'
 import { calcPacing } from '@/lib/calculations'
+import clientConfigRaw from '@/data/client_config.json'
+
+interface ClientConfig {
+  fb_account_id?: string
+  ig_account_id?: string
+}
+const CLIENT_CONFIG = clientConfigRaw as Record<string, ClientConfig>
 
 const MONTHS = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -14,29 +22,45 @@ const MONTHS = [
 
 export default function RendimientoPage() {
   const today = new Date()
-  const [year, setYear] = useState(today.getFullYear())
+  const [year, setYear]   = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth() + 1)
-  const [goals, setGoals] = useState<GoalEntry[]>([])
+
+  const [goals,       setGoals]       = useState<GoalEntry[]>([])
   const [windsorData, setWindsorData] = useState<CampaignData[]>([])
-  const [budgets, setBudgets] = useState<BudgetEntry[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [showModal, setShowModal] = useState(false)
-  const [editingGoal, setEditingGoal] = useState<GoalEntry | null>(null)
+  const [budgets,     setBudgets]     = useState<BudgetEntry[]>([])
+
+  // Mensajes (conversations) per FB account_id
+  const [conversations, setConversations] = useState<Record<string, number>>({})
+  // IG current followers
+  const [igFollowers, setIgFollowers] = useState<IgFollowerEntry[]>([])
+  // IG baseline per ig_account_id (stored in localStorage per year-month)
+  const [igBaselines, setIgBaselines] = useState<Record<string, number>>({})
+  const baselinesInitialized = useRef(false)
+
+  const [loading,      setLoading]      = useState(true)
+  const [error,        setError]        = useState<string | null>(null)
+  const [showModal,    setShowModal]    = useState(false)
+  const [editingGoal,  setEditingGoal]  = useState<GoalEntry | null>(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
     setError(null)
+    baselinesInitialized.current = false
     try {
-      const [windsorRes, goalsRes, budgetsRes] = await Promise.all([
+      const [windsorRes, goalsRes, budgetsRes, kpisRes] = await Promise.all([
         fetch(`/api/windsor?year=${year}&month=${month}`),
         fetch('/api/goals'),
         fetch('/api/budgets'),
+        fetch(`/api/kpis?year=${year}&month=${month}`),
       ])
       const windsorJson = await windsorRes.json()
       setWindsorData(windsorJson.data ?? [])
       setGoals(await goalsRes.json())
       setBudgets(await budgetsRes.json())
+
+      const kpisJson = await kpisRes.json()
+      setConversations(kpisJson.conversations ?? {})
+      setIgFollowers(kpisJson.igFollowers ?? [])
     } catch (e) {
       setError(String(e))
     } finally {
@@ -46,19 +70,74 @@ export default function RendimientoPage() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  // Google conversions grouped by client (via budget mappings)
-  const getGoogleConversions = (clientName: string) => {
-    const clientCampaignIds = budgets
+  // Initialize IG baselines in localStorage (once per year-month fetch)
+  useEffect(() => {
+    if (igFollowers.length === 0 || baselinesInitialized.current) return
+    baselinesInitialized.current = true
+
+    const newBaselines: Record<string, number> = {}
+    for (const f of igFollowers) {
+      if (!f.account_id) continue
+      const key = `ig_baseline_${year}_${month}_${f.account_id}`
+      const stored = localStorage.getItem(key)
+      if (stored === null) {
+        localStorage.setItem(key, String(f.followers_count))
+        newBaselines[f.account_id] = f.followers_count
+      } else {
+        newBaselines[f.account_id] = Number(stored)
+      }
+    }
+    setIgBaselines(newBaselines)
+  }, [igFollowers, year, month])
+
+  // Google conversions for a client (via budget campaign_ids)
+  const getGoogleConversions = (clientName: string): number => {
+    const ids = budgets
       .filter((b) => b.client_name === clientName && b.year === year && b.month === month)
       .map((b) => b.campaign_id)
     return windsorData
-      .filter((c) => clientCampaignIds.includes(c.campaign_id) && c.source === 'google')
+      .filter((c) => ids.includes(c.campaign_id) && c.source === 'google')
       .reduce((sum, c) => sum + c.conversions, 0)
+  }
+
+  // Mensajes auto-value for a client
+  const getMensajesAuto = (clientName: string): number | null => {
+    const cfg = CLIENT_CONFIG[clientName]
+    if (!cfg?.fb_account_id) return null
+    const val = conversations[cfg.fb_account_id]
+    return val !== undefined ? val : null
+  }
+
+  // Seguidores auto-value for a client (IG snapshot delta)
+  const getSeguidoresAuto = (clientName: string): number | null => {
+    const cfg = CLIENT_CONFIG[clientName]
+    if (!cfg?.ig_account_id) return null
+    const current = igFollowers.find((f) => f.account_id === cfg.ig_account_id)
+    if (!current) return null
+    const baseline = igBaselines[cfg.ig_account_id]
+    if (baseline === undefined) return null
+    return Math.max(0, current.followers_count - baseline)
+  }
+
+  // Returns { value, source } for a goal's auto value
+  const getAutoValue = (goal: GoalEntry): { value: number | null; source: string | null } => {
+    if (goal.kpi === 'conversiones') {
+      const v = getGoogleConversions(goal.client_name)
+      return { value: v, source: 'Google Ads' }
+    }
+    if (goal.kpi === 'mensajes') {
+      const v = getMensajesAuto(goal.client_name)
+      return { value: v, source: v !== null ? 'Windsor Meta' : null }
+    }
+    if (goal.kpi === 'seguidores') {
+      const v = getSeguidoresAuto(goal.client_name)
+      return { value: v, source: v !== null ? 'Windsor IG' : null }
+    }
+    return { value: null, source: null }
   }
 
   const currentGoals = goals.filter((g) => g.year === year && g.month === month)
 
-  // All known clients from goals + budgets
   const allClients = Array.from(new Set([
     ...currentGoals.map((g) => g.client_name),
     ...budgets
@@ -106,41 +185,26 @@ export default function RendimientoPage() {
     )
   }
 
-  // Summary counts
-  const statusCounts = currentGoals.reduce(
-    (acc, g) => {
-      const current =
-        g.current_override != null
-          ? g.current_override
-          : g.kpi === 'conversiones'
-          ? getGoogleConversions(g.client_name)
-          : 0
-      const s = calcPacing(g.goal_value, current, year, month).status
-      acc[s] = (acc[s] ?? 0) + 1
-      return acc
-    },
-    {} as Record<string, number>
-  )
+  const kpiOrder: Record<GoalEntry['kpi'], number> = { mensajes: 0, conversiones: 1, seguidores: 2 }
+
+  const sortedGoals = [...currentGoals].sort((a, b) => {
+    const kpiDiff = (kpiOrder[a.kpi] ?? 9) - (kpiOrder[b.kpi] ?? 9)
+    if (kpiDiff !== 0) return kpiDiff
+    return b.goal_value - a.goal_value
+  })
+
+  const statusCounts = currentGoals.reduce((acc, g) => {
+    const val = g.current_override != null ? g.current_override : (getAutoValue(g).value ?? 0)
+    const s = calcPacing(g.goal_value, val, year, month).status
+    acc[s] = (acc[s] ?? 0) + 1
+    return acc
+  }, {} as Record<string, number>)
 
   const daysInMonth = new Date(year, month, 0).getDate()
   const daysPassed =
     year === today.getFullYear() && month === today.getMonth() + 1
       ? today.getDate()
       : daysInMonth
-
-  const priorityOrder: Record<string, number> = { behind: 0, warning: 1, on_track: 2 }
-
-  const sortedGoals = [...currentGoals].sort((a, b) => {
-    const getCurrent = (g: GoalEntry) =>
-      g.current_override != null
-        ? g.current_override
-        : g.kpi === 'conversiones'
-        ? getGoogleConversions(g.client_name)
-        : 0
-    const aStatus = calcPacing(a.goal_value, getCurrent(a), year, month).status
-    const bStatus = calcPacing(b.goal_value, getCurrent(b), year, month).status
-    return (priorityOrder[aStatus] ?? 3) - (priorityOrder[bStatus] ?? 3)
-  })
 
   return (
     <div>
@@ -182,14 +246,6 @@ export default function RendimientoPage() {
         </div>
       </div>
 
-      {/* Windsor Meta warning */}
-      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6 text-sm text-amber-800">
-        <strong>⚠ Aviso Windsor:</strong> Los campos <em>conversaciones iniciadas</em> y{' '}
-        <em>seguimientos de Instagram</em> no están disponibles vía API con la configuración actual.
-        Las conversiones de Google Ads se calculan automáticamente. Para Meta Ads (Mensajes / Seguidores),
-        ingresá el valor manualmente desde cada tarjeta.
-      </div>
-
       {/* Summary */}
       {!loading && currentGoals.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
@@ -218,7 +274,7 @@ export default function RendimientoPage() {
 
       {loading && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {[1, 2, 3].map((i) => (
+          {[1, 2, 3, 4, 5, 6].map((i) => (
             <div key={i} className="bg-white rounded-2xl h-52 animate-pulse border border-gray-100" />
           ))}
         </div>
@@ -234,20 +290,19 @@ export default function RendimientoPage() {
       {!loading && !error && sortedGoals.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {sortedGoals.map((goal) => {
-            const autoValue = getGoogleConversions(goal.client_name)
+            const { value: autoVal, source: autoSource } = getAutoValue(goal)
             const currentValue =
               goal.current_override != null
                 ? goal.current_override
-                : goal.kpi === 'conversiones'
-                ? autoValue
-                : 0
+                : (autoVal ?? 0)
             const pacing = calcPacing(goal.goal_value, currentValue, year, month)
             return (
               <PacingCard
                 key={`${goal.client_name}-${goal.kpi}`}
                 goal={goal}
                 pacing={pacing}
-                autoValue={autoValue}
+                autoValue={autoVal}
+                autoSource={autoSource}
                 onEdit={() => { setEditingGoal(goal); setShowModal(true) }}
                 onDelete={() => handleDeleteGoal(goal)}
                 onUpdateOverride={async (val) => {
