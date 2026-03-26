@@ -5,7 +5,7 @@ import { RefreshCw, Plus, Pencil, AlertTriangle, UserPlus } from 'lucide-react'
 import CampaignRow from '@/components/CampaignRow'
 import CampaignFormModal from '@/components/CampaignFormModal'
 import ClientFormModal from '@/components/ClientFormModal'
-import type { AccountData, BudgetEntry } from '@/lib/types'
+import type { AccountData, BudgetEntry, CampaignSpend } from '@/lib/types'
 import { calcCashflow } from '@/lib/calculations'
 
 const MONTHS = [
@@ -33,16 +33,62 @@ function currency(n: number) {
   })
 }
 
+// Normalize campaign name for fuzzy matching (remove accents, lowercase, unify separators)
+function normName(s: string): string {
+  return s.toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[|\-_]+/g, ' ')
+    .replace(/\s+/g, ' ').trim()
+}
+
 function campaignSpend(
   budget: BudgetEntry,
   monthBudgets: BudgetEntry[],
-  accounts: AccountData[]
+  accounts: AccountData[],
+  windsorCampaigns: CampaignSpend[]
 ): number {
+  // Manual override has priority
+  if (budget.spend_override != null) return budget.spend_override
+
+  // "All or nothing" per account: use Windsor campaign-level spend only if
+  // ALL active campaigns in the account can be matched to a Windsor campaign.
+  // This avoids double-counting when some campaigns match and others fall back
+  // to proportional of the full account spend.
+  const accountBudgets = monthBudgets.filter(
+    (b) => b.account_id === budget.account_id && b.source === budget.source && !b.paused
+  )
+  const accountWCampaigns = windsorCampaigns.filter(
+    (c) => c.account_id === budget.account_id && c.source === budget.source
+  )
+
+  if (accountWCampaigns.length > 0 && accountBudgets.length > 0) {
+    const matchMap = new Map<string, number>() // campaign_id → windsor spend
+    let allMatched = true
+
+    for (const ab of accountBudgets) {
+      const abNorm = normName(ab.campaign_name)
+      const match = accountWCampaigns.find((wc) => {
+        const wcNorm = normName(wc.campaign_name)
+        return wcNorm === abNorm || wcNorm.includes(abNorm) || abNorm.includes(wcNorm)
+      })
+      if (match) {
+        matchMap.set(ab.campaign_id, match.spend)
+      } else {
+        allMatched = false
+        break
+      }
+    }
+
+    if (allMatched) {
+      return matchMap.get(budget.campaign_id) ?? 0
+    }
+  }
+
+  // Fall back to proportional distribution from account total
   const account = accounts.find((a) => a.account_id === budget.account_id && a.source === budget.source)
   if (!account) return 0
   const activeBudgets = monthBudgets.filter((b) => b.account_id === budget.account_id && b.source === budget.source && !b.paused)
   const accountTotalBudget = activeBudgets.reduce((s, b) => s + b.budget_total, 0)
-  // If no budget configured, distribute spend equally among active campaigns
   if (accountTotalBudget === 0) return activeBudgets.length > 0 ? account.spend / activeBudgets.length : 0
   return (budget.budget_total / accountTotalBudget) * account.spend
 }
@@ -52,6 +98,7 @@ export default function CashflowPage() {
   const [year, setYear] = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth() + 1)
   const [accounts, setAccounts] = useState<AccountData[]>([])
+  const [windsorCampaigns, setWindsorCampaigns] = useState<CampaignSpend[]>([])
   const [budgets, setBudgets] = useState<BudgetEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -74,6 +121,7 @@ export default function CashflowPage() {
       const accs: AccountData[] = windsorJson.data ?? []
       const bs: BudgetEntry[] = await budgetRes.json()
       setAccounts(accs)
+      setWindsorCampaigns(windsorJson.campaigns ?? [])
       setBudgets(bs)
       if (!selected) {
         const mb = bs.filter((b) => b.year === year && b.month === month)
@@ -108,7 +156,7 @@ export default function CashflowPage() {
     const cb = monthBudgets.filter((b) => b.client_name === clientName && b.source === source && !b.paused)
     if (cb.length === 0) return 'bg-gray-300'
     const totalBudget = cb.reduce((s, b) => s + b.budget_total, 0)
-    const totalSpend = cb.reduce((s, b) => s + campaignSpend(b, monthBudgets, accounts), 0)
+    const totalSpend = cb.reduce((s, b) => s + campaignSpend(b, monthBudgets, accounts, windsorCampaigns), 0)
     const pct = totalBudget > 0 ? (totalSpend / totalBudget) * 100 : 0
     if (Math.abs(pct - pctExpected) <= 5) return 'bg-green-500'
     if (pct > pctExpected + 5) return 'bg-red-500'
@@ -124,7 +172,7 @@ export default function CashflowPage() {
 
   const clientSummary = activeBudgets.reduce(
     (acc, b) => {
-      const spend = campaignSpend(b, monthBudgets, accounts)
+      const spend = campaignSpend(b, monthBudgets, accounts, windsorCampaigns)
       const cf = calcCashflow(b.budget_total, spend, year, month)
       acc.budget += cf.budgetTotal
       acc.spend += cf.spendToDate
@@ -176,6 +224,18 @@ export default function CashflowPage() {
     })
     setBudgets((prev) => prev.map((b) =>
       b.campaign_id === entry.campaign_id && b.year === year && b.month === month ? updated : b
+    ))
+  }
+
+  const handleSpendOverride = async (entry: BudgetEntry, val: number | null) => {
+    const updated = { ...entry, spend_override: val }
+    await fetch('/api/budgets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updated),
+    })
+    setBudgets((prev) => prev.map((b) =>
+      b.campaign_id === entry.campaign_id && b.year === entry.year && b.month === entry.month ? updated : b
     ))
   }
 
@@ -434,7 +494,7 @@ export default function CashflowPage() {
               {/* Active campaigns */}
               <div className="space-y-2 mb-3">
                 {activeBudgets.map((b) => {
-                  const spend = campaignSpend(b, monthBudgets, accounts)
+                  const spend = campaignSpend(b, monthBudgets, accounts, windsorCampaigns)
                   const cf = calcCashflow(b.budget_total, spend, year, month)
                   return (
                     <CampaignRow
@@ -444,6 +504,7 @@ export default function CashflowPage() {
                       onEdit={() => setModal({ entry: b, clientName: b.client_name, accountId: b.account_id, source: b.source as Source })}
                       onDelete={() => handleDelete(b.campaign_id)}
                       onPause={() => handlePause(b)}
+                      onSpendOverride={(val) => handleSpendOverride(b, val)}
                     />
                   )
                 })}
@@ -479,7 +540,7 @@ export default function CashflowPage() {
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5 px-1">Pausadas</p>
                   <div className="space-y-1.5">
                     {pausedBudgets.map((b) => {
-                      const spend = campaignSpend(b, monthBudgets, accounts)
+                      const spend = campaignSpend(b, monthBudgets, accounts, windsorCampaigns)
                       const cf = calcCashflow(b.budget_total, spend, year, month)
                       return (
                         <CampaignRow
@@ -489,6 +550,7 @@ export default function CashflowPage() {
                           onEdit={() => setModal({ entry: b, clientName: b.client_name, accountId: b.account_id, source: b.source as Source })}
                           onDelete={() => handleDelete(b.campaign_id)}
                           onPause={() => handlePause(b)}
+                          onSpendOverride={(val) => handleSpendOverride(b, val)}
                         />
                       )
                     })}

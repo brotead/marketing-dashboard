@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { BarChart2, Target, LayoutDashboard, Zap } from 'lucide-react'
 
@@ -19,11 +20,7 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center gap-2.5">
-            <div className="bg-[#0066FF] rounded-xl flex items-center justify-center w-9 h-9">
-              <svg width="18" height="22" viewBox="0 0 18 22" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M2 2V20M2 11.5C2 11.5 4 8 8.5 8C13 8 16 11 16 14C16 17 13 20 8.5 20C4 20 2 17 2 17" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </div>
+            <Image src="/logo.png" alt="Brote AD" width={36} height={36} className="rounded-xl" />
             <span className="font-bold text-gray-900 text-sm">Brote AD — Pauta Digital</span>
           </div>
           <div className="flex items-center gap-1">
