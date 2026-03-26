@@ -7,6 +7,8 @@ const WINDSOR_INSTAGRAM = 'https://connectors.windsor.ai/instagram'
 interface RawRecord {
   campaign_id: string
   campaign_name: string | null
+  adset_id?: string | null
+  adset_name?: string | null
   account_id: string
   account_name: string
   source: string
@@ -18,7 +20,8 @@ export type { AccountData }
 
 interface AccountFetchResult {
   accounts: AccountData[]
-  campaigns: CampaignSpend[]
+  campaigns: CampaignSpend[]   // campaign-level aggregation
+  adsets:    CampaignSpend[]   // adset-level aggregation
 }
 
 async function fetchAccounts(
@@ -45,7 +48,7 @@ async function fetchAccounts(
   url.searchParams.set('api_key', apiKey)
   url.searchParams.set('date_from', dateFrom)
   url.searchParams.set('date_to', dateTo)
-  url.searchParams.set('fields', 'campaign_id,campaign_name,account_id,account_name,source,spend,date')
+  url.searchParams.set('fields', 'campaign_id,campaign_name,adset_id,adset_name,account_id,account_name,source,spend,date')
   url.searchParams.set('_renderer', 'json')
 
   const res = await fetch(url.toString(), { cache: 'no-store' })
@@ -84,25 +87,46 @@ async function fetchAccounts(
     if (entry) entry.campaign_count = set.size
   }
 
-  // Campaign-level spend aggregation (by campaign_id to avoid double-counting daily rows)
+  // Campaign-level aggregation (for clients where Supabase campaigns = Meta campaigns)
   const campaignMap = new Map<string, CampaignSpend>()
+  // Adset-level aggregation (for clients where Supabase campaigns = Meta ad sets)
+  const adsetMap = new Map<string, CampaignSpend>()
+
   for (const r of filtered) {
     if (!r.account_id || !r.campaign_id) continue
-    const key = `${r.account_id}|${r.campaign_id}`
-    if (!campaignMap.has(key)) {
-      campaignMap.set(key, {
+
+    // Campaign level
+    const campKey = `${r.account_id}|${r.campaign_id}`
+    if (!campaignMap.has(campKey)) {
+      campaignMap.set(campKey, {
         account_id:    r.account_id,
         source:        sourceLabel,
         campaign_name: r.campaign_name ?? '',
         spend:         0,
       })
     }
-    campaignMap.get(key)!.spend += r.spend ?? 0
+    campaignMap.get(campKey)!.spend += r.spend ?? 0
+
+    // Adset level (only when Windsor returns adset data)
+    if (r.adset_id) {
+      const adsetKey = `${r.account_id}|${r.adset_id}`
+      if (!adsetMap.has(adsetKey)) {
+        adsetMap.set(adsetKey, {
+          account_id:    r.account_id,
+          source:        sourceLabel,
+          campaign_name: r.campaign_name ?? '',
+          adset_name:    r.adset_name ?? undefined,
+          spend:         0,
+        })
+      }
+      adsetMap.get(adsetKey)!.spend += r.spend ?? 0
+    }
   }
 
   return {
-    accounts: Array.from(map.values()).sort((a, b) => b.spend - a.spend),
+    accounts:  Array.from(map.values()).sort((a, b) => b.spend - a.spend),
     campaigns: Array.from(campaignMap.values()),
+    adsets:    Array.from(adsetMap.values()),
   }
 }
 
@@ -492,7 +516,7 @@ export async function fetchFatigueAds(allowedAccountIds?: Set<string>): Promise<
 export async function fetchWindsorAccounts(
   year: number,
   month: number
-): Promise<{ accounts: AccountData[]; campaigns: CampaignSpend[] }> {
+): Promise<{ accounts: AccountData[]; campaigns: CampaignSpend[]; adsets: CampaignSpend[] }> {
   const [meta, google] = await Promise.all([
     fetchAccounts(year, month, WINDSOR_FACEBOOK, 'facebook'),
     fetchAccounts(year, month, WINDSOR_GOOGLE,   'google'),
@@ -500,5 +524,6 @@ export async function fetchWindsorAccounts(
   return {
     accounts:  [...meta.accounts,  ...google.accounts],
     campaigns: [...meta.campaigns, ...google.campaigns],
+    adsets:    [...meta.adsets,    ...google.adsets],
   }
 }

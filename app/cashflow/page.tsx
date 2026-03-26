@@ -41,50 +41,59 @@ function normName(s: string): string {
     .replace(/\s+/g, ' ').trim()
 }
 
+function tryMatchAll(
+  accountBudgets: BudgetEntry[],
+  windsorEntries: CampaignSpend[],
+  useAdset: boolean
+): Map<string, number> | null {
+  const matchMap = new Map<string, number>()
+  for (const ab of accountBudgets) {
+    const abNorm = normName(ab.campaign_name)
+    const match = windsorEntries.find((wc) => {
+      const wcName = useAdset
+        ? (wc.adset_name ? normName(wc.adset_name) : normName(wc.campaign_name))
+        : normName(wc.campaign_name)
+      return wcName === abNorm || wcName.includes(abNorm) || abNorm.includes(wcName)
+    })
+    if (!match) return null
+    matchMap.set(ab.campaign_id, match.spend)
+  }
+  return matchMap
+}
+
 function campaignSpend(
   budget: BudgetEntry,
   monthBudgets: BudgetEntry[],
   accounts: AccountData[],
-  windsorCampaigns: CampaignSpend[]
+  windsorCampaigns: CampaignSpend[],
+  windsorAdsets: CampaignSpend[]
 ): number {
   // Manual override has priority
   if (budget.spend_override != null) return budget.spend_override
 
-  // "All or nothing" per account: use Windsor campaign-level spend only if
-  // ALL active campaigns in the account can be matched to a Windsor campaign.
-  // This avoids double-counting when some campaigns match and others fall back
-  // to proportional of the full account spend.
   const accountBudgets = monthBudgets.filter(
     (b) => b.account_id === budget.account_id && b.source === budget.source && !b.paused
   )
-  const accountWCampaigns = windsorCampaigns.filter(
+  const accCampaigns = windsorCampaigns.filter(
+    (c) => c.account_id === budget.account_id && c.source === budget.source
+  )
+  const accAdsets = windsorAdsets.filter(
     (c) => c.account_id === budget.account_id && c.source === budget.source
   )
 
-  if (accountWCampaigns.length > 0 && accountBudgets.length > 0) {
-    const matchMap = new Map<string, number>() // campaign_id → windsor spend
-    let allMatched = true
-
-    for (const ab of accountBudgets) {
-      const abNorm = normName(ab.campaign_name)
-      const match = accountWCampaigns.find((wc) => {
-        const wcNorm = normName(wc.campaign_name)
-        return wcNorm === abNorm || wcNorm.includes(abNorm) || abNorm.includes(wcNorm)
-      })
-      if (match) {
-        matchMap.set(ab.campaign_id, match.spend)
-      } else {
-        allMatched = false
-        break
-      }
-    }
-
-    if (allMatched) {
-      return matchMap.get(budget.campaign_id) ?? 0
-    }
+  // 1. Try campaign-level matching first
+  if (accCampaigns.length > 0) {
+    const m = tryMatchAll(accountBudgets, accCampaigns, false)
+    if (m) return m.get(budget.campaign_id) ?? 0
   }
 
-  // Fall back to proportional distribution from account total
+  // 2. Try adset-level matching (for clients where Supabase campaigns = Meta ad sets)
+  if (accAdsets.length > 0) {
+    const m = tryMatchAll(accountBudgets, accAdsets, true)
+    if (m) return m.get(budget.campaign_id) ?? 0
+  }
+
+  // 3. Fall back to proportional distribution from account total
   const account = accounts.find((a) => a.account_id === budget.account_id && a.source === budget.source)
   if (!account) return 0
   const activeBudgets = monthBudgets.filter((b) => b.account_id === budget.account_id && b.source === budget.source && !b.paused)
@@ -99,6 +108,7 @@ export default function CashflowPage() {
   const [month, setMonth] = useState(today.getMonth() + 1)
   const [accounts, setAccounts] = useState<AccountData[]>([])
   const [windsorCampaigns, setWindsorCampaigns] = useState<CampaignSpend[]>([])
+  const [windsorAdsets, setWindsorAdsets] = useState<CampaignSpend[]>([])
   const [budgets, setBudgets] = useState<BudgetEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -122,6 +132,7 @@ export default function CashflowPage() {
       const bs: BudgetEntry[] = await budgetRes.json()
       setAccounts(accs)
       setWindsorCampaigns(windsorJson.campaigns ?? [])
+      setWindsorAdsets(windsorJson.adsets ?? [])
       setBudgets(bs)
       if (!selected) {
         const mb = bs.filter((b) => b.year === year && b.month === month)
@@ -156,7 +167,7 @@ export default function CashflowPage() {
     const cb = monthBudgets.filter((b) => b.client_name === clientName && b.source === source && !b.paused)
     if (cb.length === 0) return 'bg-gray-300'
     const totalBudget = cb.reduce((s, b) => s + b.budget_total, 0)
-    const totalSpend = cb.reduce((s, b) => s + campaignSpend(b, monthBudgets, accounts, windsorCampaigns), 0)
+    const totalSpend = cb.reduce((s, b) => s + campaignSpend(b, monthBudgets, accounts, windsorCampaigns, windsorAdsets), 0)
     const pct = totalBudget > 0 ? (totalSpend / totalBudget) * 100 : 0
     if (Math.abs(pct - pctExpected) <= 5) return 'bg-green-500'
     if (pct > pctExpected + 5) return 'bg-red-500'
@@ -172,7 +183,7 @@ export default function CashflowPage() {
 
   const clientSummary = activeBudgets.reduce(
     (acc, b) => {
-      const spend = campaignSpend(b, monthBudgets, accounts, windsorCampaigns)
+      const spend = campaignSpend(b, monthBudgets, accounts, windsorCampaigns, windsorAdsets)
       const cf = calcCashflow(b.budget_total, spend, year, month)
       acc.budget += cf.budgetTotal
       acc.spend += cf.spendToDate
@@ -494,7 +505,7 @@ export default function CashflowPage() {
               {/* Active campaigns */}
               <div className="space-y-2 mb-3">
                 {activeBudgets.map((b) => {
-                  const spend = campaignSpend(b, monthBudgets, accounts, windsorCampaigns)
+                  const spend = campaignSpend(b, monthBudgets, accounts, windsorCampaigns, windsorAdsets)
                   const cf = calcCashflow(b.budget_total, spend, year, month)
                   return (
                     <CampaignRow
@@ -540,7 +551,7 @@ export default function CashflowPage() {
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5 px-1">Pausadas</p>
                   <div className="space-y-1.5">
                     {pausedBudgets.map((b) => {
-                      const spend = campaignSpend(b, monthBudgets, accounts, windsorCampaigns)
+                      const spend = campaignSpend(b, monthBudgets, accounts, windsorCampaigns, windsorAdsets)
                       const cf = calcCashflow(b.budget_total, spend, year, month)
                       return (
                         <CampaignRow

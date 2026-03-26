@@ -7,8 +7,8 @@ export async function GET(req: NextRequest) {
   const month = parseInt(searchParams.get('month') ?? String(new Date().getMonth() + 1))
 
   try {
-    const { accounts, campaigns } = await fetchWindsorAccounts(year, month)
-    return NextResponse.json({ data: accounts, campaigns, year, month })
+    const { accounts, campaigns, adsets } = await fetchWindsorAccounts(year, month)
+    return NextResponse.json({ data: accounts, campaigns, adsets, year, month })
   } catch (err) {
     console.error('[Windsor]', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })
