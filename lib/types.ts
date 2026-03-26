@@ -115,6 +115,7 @@ export interface CampaignSpend {
   account_id: string
   source: string
   campaign_name: string
+  adset_name?: string   // populated when Windsor returns adset-level data
   spend: number
 }
 
