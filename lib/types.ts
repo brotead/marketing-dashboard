@@ -8,6 +8,7 @@ export interface CampaignData {
   impressions: number
 }
 
+
 export interface AccountData {
   account_id: string
   account_name: string
@@ -27,6 +28,7 @@ export interface BudgetEntry {
   month: number
   budget_total: number
   paused?: boolean
+  spend_override?: number | null
 }
 
 export interface GoalEntry {
@@ -107,6 +109,13 @@ export interface FatigueAd {
   spend_projection: number // estimated spend next 7d at current rate
   spend_month: number      // total spend current month to date
   thumbnail_url: string | null
+}
+
+export interface CampaignSpend {
+  account_id: string
+  source: string
+  campaign_name: string
+  spend: number
 }
 
 export interface AdCreative {

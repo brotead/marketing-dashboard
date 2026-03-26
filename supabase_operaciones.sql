@@ -1,5 +1,8 @@
--- Sección Operaciones: Tareas + Bitácora de cambios
+-- Sección Operaciones: Tareas + Bitácora de cambios + override de gasto
 -- Ejecutar en Supabase SQL Editor
+
+-- Override de gasto manual por campaña (prioridad sobre Windsor)
+alter table budgets add column if not exists spend_override numeric default null;
 
 create table if not exists tasks (
   id          uuid primary key default gen_random_uuid(),
