@@ -471,7 +471,7 @@ export default function CashflowPage() {
                     <p className="text-base font-bold text-blue-700">
                       {currency(clientSummary.daily)}<span className="text-xs font-normal text-blue-400">/día</span>
                     </p>
-                    <p className="text-xs text-blue-400">{daysInMonth - daysPassed}d restantes</p>
+                    <p className="text-xs text-blue-400">{daysInMonth - daysPassed + 1}d restantes</p>
                   </div>
                 </div>
               )}

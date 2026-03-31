@@ -8,7 +8,7 @@ function getMonthInfo(year: number, month: number) {
     year === today.getFullYear() && month === today.getMonth() + 1
   const daysInMonth = new Date(year, month, 0).getDate()
   const daysPassed = isCurrentMonth ? today.getDate() : daysInMonth
-  const daysLeft = daysInMonth - daysPassed
+  const daysLeft = isCurrentMonth ? daysInMonth - daysPassed + 1 : 0
   return { daysInMonth, daysPassed, daysLeft }
 }
 
