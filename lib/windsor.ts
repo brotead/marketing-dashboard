@@ -48,7 +48,11 @@ async function fetchAccounts(
   url.searchParams.set('api_key', apiKey)
   url.searchParams.set('date_from', dateFrom)
   url.searchParams.set('date_to', dateTo)
-  url.searchParams.set('fields', 'campaign_id,campaign_name,adset_id,adset_name,account_id,account_name,source,spend,date')
+  const isFacebook = connectorUrl === WINDSOR_FACEBOOK
+  const fields = isFacebook
+    ? 'campaign_id,campaign_name,adset_id,adset_name,account_id,account_name,source,spend,date'
+    : 'campaign_id,campaign_name,account_id,account_name,source,spend,date'
+  url.searchParams.set('fields', fields)
   url.searchParams.set('_renderer', 'json')
 
   const res = await fetch(url.toString(), { cache: 'no-store' })
@@ -513,13 +517,21 @@ export async function fetchFatigueAds(allowedAccountIds?: Set<string>): Promise<
 }
 
 // ── Spend accounts ──────────────────────────────────────────────────────────────
+const EMPTY_FETCH: AccountFetchResult = { accounts: [], campaigns: [], adsets: [] }
+
 export async function fetchWindsorAccounts(
   year: number,
   month: number
 ): Promise<{ accounts: AccountData[]; campaigns: CampaignSpend[]; adsets: CampaignSpend[] }> {
   const [meta, google] = await Promise.all([
-    fetchAccounts(year, month, WINDSOR_FACEBOOK, 'facebook'),
-    fetchAccounts(year, month, WINDSOR_GOOGLE,   'google'),
+    fetchAccounts(year, month, WINDSOR_FACEBOOK, 'facebook').catch((e) => {
+      console.error('[Windsor] Facebook connector error (ignorado):', e.message)
+      return EMPTY_FETCH
+    }),
+    fetchAccounts(year, month, WINDSOR_GOOGLE, 'google').catch((e) => {
+      console.error('[Windsor] Google connector error (ignorado):', e.message)
+      return EMPTY_FETCH
+    }),
   ])
   return {
     accounts:  [...meta.accounts,  ...google.accounts],
