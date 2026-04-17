@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, Plus, Pencil, AlertTriangle, UserPlus } from 'lucide-react'
+import { RefreshCw, Plus, Pencil, AlertTriangle, UserPlus, Clock } from 'lucide-react'
 import CampaignRow from '@/components/CampaignRow'
 import CampaignFormModal from '@/components/CampaignFormModal'
 import ClientFormModal from '@/components/ClientFormModal'
@@ -33,12 +33,40 @@ function currency(n: number) {
   })
 }
 
+function formatCountdown(s: number) {
+  const m = Math.floor(s / 60)
+  const sec = s % 60
+  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+}
+
 // Normalize campaign name for fuzzy matching (remove accents, lowercase, unify separators)
 function normName(s: string): string {
   return s.toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[|\-_]+/g, ' ')
     .replace(/\s+/g, ' ').trim()
+}
+
+// Deduplicate budget entries by normalized campaign name within the same account+source.
+// Prefers manually-created entries (non-auto_ IDs) and higher budget_total when colliding.
+function deduplicateBudgets(entries: BudgetEntry[]): BudgetEntry[] {
+  const seen = new Map<string, BudgetEntry>()
+  for (const b of entries) {
+    const key = `${b.account_id}|${b.source}|${normName(b.campaign_name)}`
+    const existing = seen.get(key)
+    if (!existing) {
+      seen.set(key, b)
+    } else {
+      const bIsAuto       = b.campaign_id.startsWith('auto_')
+      const existingIsAuto = existing.campaign_id.startsWith('auto_')
+      if (!bIsAuto && existingIsAuto) {
+        seen.set(key, b) // prefer manually-created entry
+      } else if (bIsAuto === existingIsAuto && b.budget_total > existing.budget_total) {
+        seen.set(key, b) // prefer entry with higher budget set
+      }
+    }
+  }
+  return Array.from(seen.values())
 }
 
 function tryMatchAll(
@@ -102,6 +130,179 @@ function campaignSpend(
   return (budget.budget_total / accountTotalBudget) * account.spend
 }
 
+// ── Full Windsor sync ────────────────────────────────────────────────────────────
+// Runs every hour. Compares Windsor campaigns (+ adsets) against app entries and:
+//   ADDS    new active campaigns not yet in the app
+//   PAUSES  entries whose Windsor campaign had no spend on the last day of data
+//   UNPAUSES entries whose Windsor campaign resumed spending
+//   DELETES auto-added entries that are redundant (same Windsor campaign already
+//           represented by a real/manual entry, e.g. campaign-level vs adset-level)
+async function autoSyncCampaigns(
+  windsorCampaigns: CampaignSpend[],
+  windsorAdsets: CampaignSpend[],
+  allBudgets: BudgetEntry[],
+  year: number,
+  month: number,
+  onDone: (added: BudgetEntry[], updated: BudgetEntry[], deleted: string[]) => void
+) {
+  const monthBudgets = allBudgets.filter(b => b.year === year && b.month === month)
+
+  // account → client map (only accounts already tracked in the app)
+  const accountToClient = new Map<string, { client: string; source: string }>()
+  for (const b of monthBudgets) {
+    accountToClient.set(`${b.account_id}|${b.source}`, { client: b.client_name, source: b.source })
+  }
+
+  // Index Windsor campaigns: "account_id|source|normName" → CampaignSpend
+  const wcIndex = new Map<string, CampaignSpend>()
+  for (const wc of windsorCampaigns) {
+    if (!wc.account_id) continue
+    wcIndex.set(`${wc.account_id}|${wc.source}|${normName(wc.campaign_name)}`, wc)
+  }
+
+  // Index Windsor adsets → their parent CampaignSpend: "account_id|source|normAdsetName" → parent
+  const waIndex = new Map<string, CampaignSpend>()
+  for (const wa of windsorAdsets) {
+    if (!wa.account_id || !wa.adset_name) continue
+    const parentKey = `${wa.account_id}|${wa.source}|${normName(wa.campaign_name)}`
+    const parent = wcIndex.get(parentKey)
+    if (!parent) continue
+    waIndex.set(`${wa.account_id}|${wa.source}|${normName(wa.adset_name)}`, parent)
+  }
+
+  // Find the Windsor CampaignSpend that best matches a budget entry (campaign OR adset name)
+  function findMatch(b: BudgetEntry): CampaignSpend | undefined {
+    const as   = `${b.account_id}|${b.source}`
+    const bNorm = normName(b.campaign_name)
+    // Exact campaign name
+    const ce = wcIndex.get(`${as}|${bNorm}`)
+    if (ce) return ce
+    // Fuzzy campaign name
+    for (const [k, wc] of wcIndex) {
+      if (!k.startsWith(as + '|')) continue
+      const wcN = k.slice(as.length + 1)
+      if (wcN.includes(bNorm) || bNorm.includes(wcN)) return wc
+    }
+    // Exact adset name
+    const ae = waIndex.get(`${as}|${bNorm}`)
+    if (ae) return ae
+    // Fuzzy adset name
+    for (const [k, wc] of waIndex) {
+      if (!k.startsWith(as + '|')) continue
+      const waN = k.slice(as.length + 1)
+      if (waN.includes(bNorm) || bNorm.includes(waN)) return wc
+    }
+    return undefined
+  }
+
+  // ── Phase 1: map every existing entry to its Windsor campaign ─────────────────
+  const entryToWc = new Map<string, CampaignSpend>()
+  for (const b of monthBudgets) {
+    const wc = findMatch(b)
+    if (wc) entryToWc.set(b.campaign_id, wc)
+  }
+
+  // ── Phase 2: resolve conflicts ────────────────────────────────────────────────
+  // If multiple entries point to the same Windsor campaign, delete auto-adds that
+  // have no budget set (they're redundant campaign-level duplicates of adset entries).
+  const wcToEntries = new Map<string, BudgetEntry[]>()
+  for (const b of monthBudgets) {
+    const wc = entryToWc.get(b.campaign_id)
+    if (!wc) continue
+    const k = `${wc.account_id}|${wc.source}|${normName(wc.campaign_name)}`
+    if (!wcToEntries.has(k)) wcToEntries.set(k, [])
+    wcToEntries.get(k)!.push(b)
+  }
+
+  const deleteSet = new Set<string>()
+  for (const entries of wcToEntries.values()) {
+    if (entries.length <= 1) continue
+    const realEntries = entries.filter(b => !b.campaign_id.startsWith('auto_') || b.budget_total > 0)
+    const autoZero    = entries.filter(b =>  b.campaign_id.startsWith('auto_') && b.budget_total === 0)
+    if (realEntries.length > 0) autoZero.forEach(b => deleteSet.add(b.campaign_id))
+  }
+
+  // ── Phase 3: sync paused/active status ───────────────────────────────────────
+  const toUpdate: BudgetEntry[] = []
+  for (const b of monthBudgets) {
+    if (deleteSet.has(b.campaign_id)) continue
+    const wc = entryToWc.get(b.campaign_id)
+    if (!wc) continue  // no Windsor data at all — leave user's setting intact
+    const activeInWindsor = (wc.today_spend ?? 0) > 0
+    if (activeInWindsor && b.paused)  toUpdate.push({ ...b, paused: false })
+    if (!activeInWindsor && !b.paused) toUpdate.push({ ...b, paused: true })
+  }
+
+  // ── Phase 4: add new active campaigns ────────────────────────────────────────
+  // Build the set of Windsor campaign keys already represented by surviving entries
+  const matchedKeys = new Set<string>()
+  for (const b of monthBudgets) {
+    if (deleteSet.has(b.campaign_id)) continue
+    const wc = entryToWc.get(b.campaign_id)
+    if (wc) matchedKeys.add(`${wc.account_id}|${wc.source}|${normName(wc.campaign_name)}`)
+  }
+
+  // Group unmatched Windsor campaigns (active today) by account
+  const unmatchedWcByAcct = new Map<string, CampaignSpend[]>()
+  const addSeen = new Set<string>()
+  for (const wc of windsorCampaigns) {
+    if (!wc.account_id || (wc.today_spend ?? 0) <= 0) continue
+    const wcKey = `${wc.account_id}|${wc.source}|${normName(wc.campaign_name)}`
+    if (matchedKeys.has(wcKey) || addSeen.has(wcKey)) continue
+    if (!accountToClient.has(`${wc.account_id}|${wc.source}`)) continue
+    addSeen.add(wcKey)
+    const acctKey = `${wc.account_id}|${wc.source}`
+    if (!unmatchedWcByAcct.has(acctKey)) unmatchedWcByAcct.set(acctKey, [])
+    unmatchedWcByAcct.get(acctKey)!.push(wc)
+  }
+
+  const toAdd: BudgetEntry[] = []
+  for (const [acctKey, unmatchedWc] of unmatchedWcByAcct) {
+    // Count surviving active Supabase entries that ALSO have no Windsor match (name mismatch)
+    // These are existing campaigns that are already set up but Windsor uses different names.
+    // We only add the EXCESS — campaigns beyond what existing entries already cover.
+    const [acctId, acctSource] = acctKey.split('|')
+    const unmatchedExistingCount = monthBudgets.filter(b =>
+      b.account_id === acctId && b.source === acctSource &&
+      !b.paused && !deleteSet.has(b.campaign_id) && !entryToWc.has(b.campaign_id)
+    ).length
+
+    // Sort by spend descending so we prefer the highest-spending genuinely new campaigns
+    const sorted = [...unmatchedWc].sort((a, b) => (b.today_spend ?? 0) - (a.today_spend ?? 0))
+    const numToAdd = Math.max(0, sorted.length - unmatchedExistingCount)
+    const mapping = accountToClient.get(acctKey)!
+
+    for (let i = 0; i < numToAdd; i++) {
+      const wc = sorted[i]
+      const suffix = wc.source === 'facebook' ? 'fb' : 'gg'
+      toAdd.push({
+        campaign_id:   `auto_${suffix}_${wc.account_id.slice(-5)}_${Date.now()}_${toAdd.length}`,
+        campaign_name: wc.campaign_name,
+        client_name:   mapping.client,
+        source:        wc.source,
+        account_id:    wc.account_id,
+        year, month,
+        budget_total:  0,
+        paused:        false,
+      })
+    }
+  }
+
+  // ── Execute all changes ───────────────────────────────────────────────────────
+  const toDelete = Array.from(deleteSet)
+  const promises: Promise<unknown>[] = [
+    ...[...toAdd, ...toUpdate].map(e => fetch('/api/budgets', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(e),
+    })),
+    ...toDelete.map(id => fetch('/api/budgets', {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ campaign_id: id, year, month }),
+    })),
+  ]
+  if (promises.length > 0) await Promise.all(promises)
+  onDone(toAdd, toUpdate, toDelete)
+}
+
 export default function CashflowPage() {
   const today = new Date()
   const [year, setYear] = useState(today.getFullYear())
@@ -117,50 +318,100 @@ export default function CashflowPage() {
   const [clientModal, setClientModal] = useState<Source | null>(null)
   const [editingTotal, setEditingTotal] = useState(false)
   const [totalInput, setTotalInput] = useState('')
+  const [countdown, setCountdown] = useState(3600)
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (force = false) => {
     setLoading(true)
     setError(null)
     try {
       const [windsorRes, budgetRes] = await Promise.all([
-        fetch(`/api/windsor?year=${year}&month=${month}`),
+        fetch(`/api/windsor?year=${year}&month=${month}${force ? '&force=true' : ''}`),
         fetch('/api/budgets'),
       ])
       if (!windsorRes.ok) throw new Error('Error al conectar con Windsor')
       const windsorJson = await windsorRes.json()
-      const accs: AccountData[] = windsorJson.data ?? []
-      const bs: BudgetEntry[] = await budgetRes.json()
+      const accs: AccountData[]    = windsorJson.data      ?? []
+      const bs:   BudgetEntry[]    = await budgetRes.json()
+      const wCampaigns: CampaignSpend[] = windsorJson.campaigns ?? []
+      const wAdsets:    CampaignSpend[] = windsorJson.adsets    ?? []
+
       setAccounts(accs)
-      setWindsorCampaigns(windsorJson.campaigns ?? [])
-      setWindsorAdsets(windsorJson.adsets ?? [])
+      setWindsorCampaigns(wCampaigns)
+      setWindsorAdsets(wAdsets)
       setBudgets(bs)
+
+      // Auto-select from URL param (on first load) or default to first Meta client
       if (!selected) {
-        const mb = bs.filter((b) => b.year === year && b.month === month)
-        const firstMeta = Array.from(new Set(mb.filter(b => b.source === 'facebook').map(b => b.client_name))).sort()[0]
-        if (firstMeta) setSelected({ client: firstMeta, source: 'facebook' })
+        const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '')
+        const preClient = params.get('client')
+        const preSrc    = params.get('source') as Source | null
+        if (preClient && preSrc) {
+          setSelected({ client: preClient, source: preSrc })
+        } else {
+          const mb = bs.filter((b) => b.year === year && b.month === month)
+          const firstMeta = Array.from(new Set(mb.filter(b => b.source === 'facebook').map(b => b.client_name))).sort()[0]
+          if (firstMeta) setSelected({ client: firstMeta, source: 'facebook' })
+        }
       }
+
+      // Full Windsor sync: adds new, pauses inactive, unpauses resumed, removes redundant duplicates
+      await autoSyncCampaigns(wCampaigns, wAdsets, bs, year, month, (added, updated, deleted) => {
+        setBudgets(prev => {
+          let next = [...prev, ...added]
+          for (const u of updated) {
+            const idx = next.findIndex(b => b.campaign_id === u.campaign_id && b.year === u.year && b.month === u.month)
+            if (idx >= 0) next[idx] = u
+          }
+          next = next.filter(b => !(deleted.includes(b.campaign_id) && b.year === year && b.month === month))
+          return next
+        })
+      })
     } catch (e) {
       setError(String(e))
     } finally {
       setLoading(false)
     }
-  }, [year, month])
+  }, [year, month]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  // Countdown timer: ticks every second, triggers forced sync when it reaches 0
+  useEffect(() => {
+    const id = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) {
+          fetchData(true)
+          return 3600
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => clearInterval(id)
+  }, [fetchData])
 
   const monthBudgets = budgets.filter((b) => b.year === year && b.month === month)
 
   const daysInMonth = new Date(year, month, 0).getDate()
+  // Data from Windsor is through yesterday — align pacing to match
   const daysPassed =
     year === today.getFullYear() && month === today.getMonth() + 1
-      ? today.getDate()
+      ? Math.max(1, today.getDate() - 1)
       : daysInMonth
   const pctExpected = (daysPassed / daysInMonth) * 100
 
   function getClients(source: Source): string[] {
-    return Array.from(new Set(
+    const all = Array.from(new Set(
       monthBudgets.filter((b) => b.source === source).map((b) => b.client_name)
-    )).sort()
+    ))
+    return all.sort((a, b) => {
+      const aCampaigns = monthBudgets.filter(e => e.client_name === a && e.source === source)
+      const bCampaigns = monthBudgets.filter(e => e.client_name === b && e.source === source)
+      const aAllPaused = aCampaigns.length > 0 && aCampaigns.every(e => e.paused)
+      const bAllPaused = bCampaigns.length > 0 && bCampaigns.every(e => e.paused)
+      if (aAllPaused && !bAllPaused) return 1
+      if (!aAllPaused && bAllPaused) return -1
+      return a.localeCompare(b)
+    })
   }
 
   function clientDotColor(clientName: string, source: Source): string {
@@ -174,9 +425,9 @@ export default function CashflowPage() {
     return 'bg-amber-400'
   }
 
-  // Selected client's campaigns
+  // Selected client's campaigns — deduplicated by normalized name to prevent double rows
   const clientBudgets = selected
-    ? monthBudgets.filter((b) => b.client_name === selected.client && b.source === selected.source)
+    ? deduplicateBudgets(monthBudgets.filter((b) => b.client_name === selected.client && b.source === selected.source))
     : []
   const activeBudgets = clientBudgets.filter((b) => !b.paused)
   const pausedBudgets = clientBudgets.filter((b) => b.paused)
@@ -283,16 +534,21 @@ export default function CashflowPage() {
       <div className="space-y-0.5">
         {clients.map((client) => {
           const isSelected = selected?.client === client && selected?.source === source
+          const campaigns  = monthBudgets.filter(e => e.client_name === client && e.source === source)
+          const allPaused  = campaigns.length > 0 && campaigns.every(e => e.paused)
           return (
             <button
               key={client}
               onClick={() => { setSelected({ client, source }); setEditingTotal(false) }}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-left transition ${
-                isSelected ? `${color} text-white font-semibold` : 'text-gray-700 hover:bg-gray-100'
+                isSelected ? `${color} text-white font-semibold` : allPaused ? 'text-gray-400 hover:bg-gray-50' : 'text-gray-700 hover:bg-gray-100'
               }`}
             >
               <span className={`w-2 h-2 rounded-full shrink-0 ${isSelected ? 'bg-white/60' : clientDotColor(client, source)}`} />
-              <span className="truncate">{client}</span>
+              <span className="flex-1 truncate">{client}</span>
+              {allPaused && !isSelected && (
+                <span className="text-[9px] font-semibold text-gray-400 bg-gray-100 px-1 py-0.5 rounded shrink-0">PAUSA</span>
+              )}
             </button>
           )
         })}
@@ -328,8 +584,12 @@ export default function CashflowPage() {
           >
             {[2025, 2026, 2027].map((y) => <option key={y}>{y}</option>)}
           </select>
+          <div className="flex items-center gap-1.5 text-xs text-gray-400 border border-gray-200 rounded-lg px-3 py-2 bg-white font-mono" title="Próxima sincronización automática">
+            <Clock size={12} className="shrink-0" />
+            {formatCountdown(countdown)}
+          </div>
           <button
-            onClick={fetchData}
+            onClick={() => { fetchData(true); setCountdown(3600) }}
             disabled={loading}
             className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition disabled:opacity-60"
           >

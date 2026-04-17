@@ -1,81 +1,81 @@
 const WINDSOR_FACEBOOK = 'https://connectors.windsor.ai/facebook'
 
-export type Status  = 'green' | 'yellow' | 'red'
-export type Health  = 'excellent' | 'stable' | 'review' | 'priority'
+// ── In-memory audit cache (15 min TTL) ─────────────────────────────────────────
+const _auditCache = new Map<string, { data: AuditData; ts: number }>()
+const AUDIT_TTL = 15 * 60 * 1000 // 15 minutes
 
-export interface ClientAudit {
-  account_id:   string
-  account_name: string
-  client_name:  string
-  score:        number
-  health:       Health
-  // Current (recent 7d)
-  ctr:          number
-  cpm:          number
-  frequency:    number
-  cpl:          number
-  spend:        number
-  leads:        number
-  // % change vs prev 7d
-  ctr_change:   number | null
-  cpm_change:   number | null
-  cpl_change:   number | null
-  // Signal statuses
-  ctr_status:   Status
-  cpm_status:   Status
-  freq_status:  Status
-  cpl_status:   Status | 'none'
-  // Diagnosis
-  diagnosis:    string
-  action:       string
-  tags:         string[]
-  has_cpl:      boolean
+export type Status = 'green' | 'yellow' | 'red'
+export type Health = 'excellent' | 'stable' | 'review' | 'priority'
+
+// ── Windsor raw types ────────────────────────────────────────────────────────
+
+interface RawRow {
+  account_id?:    string | null
+  account_name?:  string | null
+  campaign_id?:   string | null
+  campaign?:      string | null   // Windsor uses "campaign" not "campaign_name"
+  spend?:         number | null
+  impressions?:   number | null
+  cpm?:           number | null   // pre-computed in account currency (ARS)
+  link_clicks?:   number | null   // used to compute CTR (link click-through rate)
+  actions_lead?:  number | null
+  actions_onsite_conversion_lead_grouped?:                         number | null
+  actions_onsite_conversion_messaging_conversation_started_7d?:   number | null
 }
 
-export interface AuditData {
-  results:     ClientAudit[]
-  total_spend: number
-  total_leads: number
-  updated_at:  string
+// Windsor fields — CTR computed as link_clicks/impressions. Frequency removed.
+const ACCOUNT_FIELDS = [
+  'account_id', 'account_name',
+  'spend', 'impressions', 'cpm', 'link_clicks',
+  'actions_lead',
+  'actions_onsite_conversion_lead_grouped',
+  'actions_onsite_conversion_messaging_conversation_started_7d',
+].join(',')
+
+const CAMPAIGN_FIELDS = [
+  'account_id', 'campaign_id', 'campaign',
+  'spend', 'impressions', 'cpm', 'link_clicks',
+  'actions_lead',
+  'actions_onsite_conversion_lead_grouped',
+  'actions_onsite_conversion_messaging_conversation_started_7d',
+].join(',')
+
+// ── Computed metrics ─────────────────────────────────────────────────────────
+
+export interface Metrics {
+  spend:       number
+  impressions: number
+  ctr:         number   // link click CTR in % = (link_clicks / impressions) * 100
+  cpm:         number   // in account currency
+  link_clicks: number
+  results:     number   // leads + messages + grouped leads
+}
+
+function toMetrics(r: RawRow): Metrics {
+  const impressions = r.impressions ?? 0
+  const link_clicks = r.link_clicks ?? 0
+  const results =
+    (r.actions_lead ?? 0) +
+    (r.actions_onsite_conversion_lead_grouped ?? 0) +
+    (r.actions_onsite_conversion_messaging_conversation_started_7d ?? 0)
+  return {
+    spend:       r.spend ?? 0,
+    impressions,
+    ctr:         impressions > 0 ? (link_clicks / impressions) * 100 : 0,
+    cpm:         r.cpm ?? 0,
+    link_clicks,
+    results,
+  }
 }
 
 // ── Fetch one period ─────────────────────────────────────────────────────────
 
-interface RawRecord {
-  account_id?:   string | null
-  account_name?: string | null
-  spend?:        number | string | null
-  impressions?:  number | string | null
-  clicks?:       number | string | null
-  reach?:        number | string | null
-  actions?:      { action_type: string; value: string }[]
-}
-
-interface PeriodMetrics {
-  account_name: string
-  spend:        number
-  impressions:  number
-  clicks:       number
-  reach:        number
-  leads:        number
-}
-
-function extractLeads(actions?: { action_type: string; value: string }[]): number {
-  if (!actions) return 0
-  const types = [
-    'lead',
-    'offsite_conversion.fb_pixel_lead',
-    'onsite_conversion.lead_grouped',
-    'onsite_conversion.messaging_conversation_started_7d',
-  ]
-  for (const t of types) {
-    const hit = actions.find(a => a.action_type === t)
-    if (hit) return Number(hit.value) || 0
-  }
-  return 0
-}
-
-async function fetchPeriod(dateFrom: string, dateTo: string): Promise<Map<string, PeriodMetrics>> {
+async function fetchPeriod(
+  dateFrom:    string,
+  dateTo:      string,
+  fields:      string,
+  allowedIds?: Set<string>
+): Promise<RawRow[]> {
   const apiKey = process.env.WINDSOR_API_KEY
   if (!apiKey) throw new Error('WINDSOR_API_KEY no configurada')
 
@@ -83,36 +83,22 @@ async function fetchPeriod(dateFrom: string, dateTo: string): Promise<Map<string
   url.searchParams.set('api_key',   apiKey)
   url.searchParams.set('date_from', dateFrom)
   url.searchParams.set('date_to',   dateTo)
-  // No 'date' dimension → Windsor returns one aggregated row per account
-  url.searchParams.set('fields', 'account_id,account_name,spend,impressions,clicks,reach,actions')
+  url.searchParams.set('fields',    fields)
   url.searchParams.set('_renderer', 'json')
 
   const res = await fetch(url.toString(), { cache: 'no-store' })
   if (!res.ok) throw new Error(`Windsor error ${res.status}`)
 
-  const json  = await res.json()
-  const recs: RawRecord[] = json.data ?? []
+  const json = await res.json()
+  let rows: RawRow[] = json.data ?? []
 
-  const map = new Map<string, PeriodMetrics>()
-  for (const r of recs) {
-    if (!r.account_id) continue
-    if (!map.has(r.account_id)) {
-      map.set(r.account_id, {
-        account_name: String(r.account_name ?? r.account_id),
-        spend: 0, impressions: 0, clicks: 0, reach: 0, leads: 0,
-      })
-    }
-    const m = map.get(r.account_id)!
-    m.spend       += Number(r.spend       ?? 0)
-    m.impressions += Number(r.impressions ?? 0)
-    m.clicks      += Number(r.clicks      ?? 0)
-    m.reach       += Number(r.reach       ?? 0)
-    m.leads       += extractLeads(r.actions)
+  if (allowedIds && allowedIds.size > 0) {
+    rows = rows.filter(r => r.account_id && allowedIds.has(r.account_id))
   }
-  return map
+  return rows
 }
 
-// ── Signal thresholds ─────────────────────────────────────────────────────────
+// ── Signal thresholds ────────────────────────────────────────────────────────
 
 function ctrStatus(change: number | null): Status {
   if (change === null) return 'yellow'
@@ -120,162 +106,514 @@ function ctrStatus(change: number | null): Status {
   if (change < -15)   return 'red'
   return 'yellow'
 }
-
 function cpmStatus(change: number | null): Status {
   if (change === null) return 'yellow'
   if (change < -10)   return 'green'
   if (change >  20)   return 'red'
   return 'yellow'
 }
-
-function freqStatus(freq: number, hasReach: boolean): Status {
-  if (!hasReach) return 'yellow'
-  if (freq <= 2.2)    return 'green'
-  if (freq <= 3.0)    return 'yellow'
-  return 'red'
-}
-
 function cplStatus(change: number | null): Status {
   if (change === null) return 'yellow'
   if (change < -10)   return 'green'
   if (change >  18)   return 'red'
   return 'yellow'
 }
-
 function statusScore(s: Status): number {
   return s === 'green' ? 2 : s === 'red' ? -2 : 0
 }
 
-// ── Diagnosis rules ───────────────────────────────────────────────────────────
+// ── Diagnosis engine — Priority: CPL > CTR > CPM ────────────────────────────
 
 function diagnose(
-  ctr: Status, cpm: Status, freq: Status, cpl: Status, hasCpl: boolean
-): { diagnosis: string; action: string; tags: string[] } {
-  // Caso 3: Problema completo (tiene prioridad máxima)
-  if (ctr === 'red' && cpm === 'red' && hasCpl && cpl === 'red') return {
-    diagnosis: 'Problema creativo + público + funnel',
-    action:    'Crear anuncios nuevos, nuevo público y revisar landing / WhatsApp / ventas.',
-    tags:      ['Creativo agotado', 'Público nuevo'],
+  ctr_s: Status, cpm_s: Status,
+  cpl_s: Status, hasCpl: boolean,
+  m: Metrics, prev: Metrics | null
+): { diagnosis: string; action: string; insight: string; tip: string; tags: string[] } {
+
+  // ── CPL RULES (highest priority) ──────────────────────────────────────────
+  // CPL bad + CTR bad → total problem
+  if (hasCpl && cpl_s === 'red' && ctr_s === 'red') return {
+    diagnosis: 'Problema integral',
+    action:    'Pausar y reestructurar: nuevos creativos, nueva segmentación y revisar el funnel de conversión.',
+    insight:   'CPL alto y CTR bajo al mismo tiempo: el anuncio no engancha y el funnel no cierra. Requiere intervención completa.',
+    tip:       'Empezar con presupuesto bajo (30-40% del anterior) al relanzar para dejar que el algoritmo aprenda antes de escalar.',
+    tags: ['Creativo agotado', 'Público nuevo'],
   }
-  // Caso 1: Creativo agotado
-  if (ctr === 'red' && freq === 'red') return {
-    diagnosis: 'Creativo agotado',
-    action:    'Cambiar anuncios, nuevos copies y creatividades esta semana.',
-    tags:      ['Creativo agotado'],
+
+  // CPL bad + CTR ok → landing/funnel problem
+  if (hasCpl && cpl_s === 'red') return {
+    diagnosis: 'Problema post-clic',
+    action:    'Revisar landing page, velocidad de carga, formulario de contacto y tiempo de respuesta del equipo de ventas.',
+    insight:   'Los anuncios reciben clics (CTR aceptable) pero los resultados no llegan. El cuello de botella está después del clic: landing, formulario o seguimiento comercial.',
+    tip:       'Verificar velocidad de la landing con PageSpeed Insights y que el formulario funcione correctamente en mobile.',
+    tags: [],
   }
-  // Caso 5: Buen tráfico pero no convierte
-  if (ctr === 'green' && hasCpl && cpl === 'red') return {
-    diagnosis: 'Problema post click',
-    action:    'Revisar landing page, formulario, atención comercial o cierre de ventas.',
-    tags:      [],
+
+  // CPL good + CTR good → excellent, scale
+  if (hasCpl && cpl_s === 'green' && ctr_s === 'green') return {
+    diagnosis: 'Cuenta escalable',
+    action:    'Incrementar presupuesto entre 10% y 20% cada 3-4 días para maximizar resultados sin romper el algoritmo.',
+    insight:   'CPL mejorando y CTR sano: el funnel de conversión funciona bien y los anuncios enganchan. Es el momento ideal para escalar de forma gradual.',
+    tip:       'Al escalar, considerar un test A/B de audiencias similares (lookalike 2-3%) para ampliar volumen sin saturar la base actual.',
+    tags: ['Escalar'],
   }
-  // Caso 2: Público caro/saturado
-  if (cpm === 'red' && (ctr === 'yellow' || ctr === 'green')) return {
-    diagnosis: 'Audiencia cara o limitada',
-    action:    'Probar nuevos públicos, broad, lookalikes o expandir geografía.',
-    tags:      ['Público nuevo'],
+
+  // CPL good (even if CTR/CPM weak) → account is fine, just monitor
+  if (hasCpl && cpl_s === 'green') return {
+    diagnosis: 'CPL saludable',
+    action:    'Mantener configuración y monitorear CTR y CPM para anticipar deterioro futuro.',
+    insight:   'El CPL está mejorando: el negocio está generando resultados a menor costo. Aunque CTR o CPM puedan mostrar señales, el resultado final es positivo.',
+    tip:       'Revisar creatividades si el CTR sigue bajando, pero no hacer cambios apresurados mientras el CPL se mantenga verde.',
+    tags: [],
   }
-  // Caso 4: Escalable
-  if (ctr === 'green' && freq === 'green' && (!hasCpl || cpl === 'green')) return {
-    diagnosis: 'Cuenta saludable — escalable',
-    action:    'Subir presupuesto entre 10% y 20%.',
-    tags:      ['Escalar'],
+
+  // ── CTR RULES (secondary) ─────────────────────────────────────────────────
+  // CTR bad → creative problem
+  if (ctr_s === 'red') return {
+    diagnosis: 'Creativo sin resonancia',
+    action:    'Testear nuevos enfoques creativos: cambiar el hook, probar video corto (15-30s) y distintas propuestas de valor.',
+    insight:   'El CTR está cayendo: la audiencia no está reaccionando al anuncio. El problema es de creatividad o mensaje, no de conversión.',
+    tip:       'Preparar un banco de 3-5 creatividades nuevas antes de rotar para no quedarse sin material.',
+    tags: ['Creativo agotado'],
   }
+
+  // CTR good, no CPL → on track, scale
+  if (ctr_s === 'green' && !hasCpl) return {
+    diagnosis: 'CTR sano — sin conversiones medidas',
+    action:    'Considerar implementar un píxel de conversión o formulario de leads para medir el impacto real.',
+    insight:   'El CTR es bueno pero no hay datos de CPL. Sin medir conversiones es imposible saber si el gasto está generando resultados reales.',
+    tip:       'Activar seguimiento de conversiones en Meta o Google Ads para poder optimizar por resultado y no solo por tráfico.',
+    tags: [],
+  }
+
+  // ── CPM RULES (tertiary) ──────────────────────────────────────────────────
+  if (cpm_s === 'red') return {
+    diagnosis: 'Audiencia cara o saturada',
+    action:    'Explorar nuevas audiencias: broad targeting, lookalikes o expandir geografía y rangos de edad.',
+    insight:   'El CPM está subiendo: la subasta se encarece para esta audiencia. Puede ser por estacionalidad o saturación del público objetivo.',
+    tip:       'Broad targeting con una creatividad bien optimizada puede sorprender en cuentas con historial. Las plataformas tienen más datos de los que parece.',
+    tags: ['Público nuevo'],
+  }
+
+  // CTR good + CPM good → scalable
+  if (ctr_s === 'green' && cpm_s === 'green') return {
+    diagnosis: 'Cuenta saludable — oportunidad de escala',
+    action:    'Incrementar presupuesto entre 10% y 20% cada 3-4 días. No escalar de golpe para no romper el algoritmo.',
+    insight:   'CTR y CPM en buen estado. Sin datos de conversión pero el tráfico generado es eficiente y de calidad.',
+    tip:       'Al escalar, lanzar también un test A/B de audiencias similares para ampliar volumen sin saturar la base actual.',
+    tags: ['Escalar'],
+  }
+
   return {
     diagnosis: 'Performance estable',
-    action:    'Monitorear evolución durante la semana.',
-    tags:      [],
+    action:    'Mantener configuración actual y monitorear métricas durante la semana.',
+    insight:   'Las métricas no muestran señales claras de alerta ni de oportunidad. Continuar optimizando creatividades y audiencias de forma iterativa.',
+    tip:       'Lanzar 2-3 variaciones creativas con diferentes hooks o formatos para explorar si hay margen de mejora.',
+    tags: [],
   }
 }
 
-// ── Main audit function ───────────────────────────────────────────────────────
+// ── Audit types ──────────────────────────────────────────────────────────────
+
+export interface CampaignAudit {
+  campaign_id:  string
+  campaign:     string
+  spend:        number
+  impressions:  number
+  ctr:          number
+  cpm:          number
+  results:      number
+  cpl:          number
+  ctr_change:   number | null
+  cpm_change:   number | null
+  cpl_change:   number | null
+  ctr_status:   Status
+  cpm_status:   Status
+  cpl_status:   Status | 'none'
+  has_cpl:      boolean
+  score:        number
+  health:       Health
+  diagnosis:    string
+  action:       string
+  insight:      string
+  tip:          string
+  tags:         string[]
+}
+
+export interface ClientAudit {
+  account_id:   string
+  client_name:  string
+  score:        number
+  health:       Health
+  spend:        number
+  impressions:  number
+  ctr:          number
+  cpm:          number
+  results:      number
+  cpl:          number
+  ctr_change:   number | null
+  cpm_change:   number | null
+  cpl_change:   number | null
+  ctr_status:   Status
+  cpm_status:   Status
+  cpl_status:   Status | 'none'
+  has_cpl:      boolean
+  diagnosis:    string
+  action:       string
+  insight:      string
+  tip:          string
+  tags:         string[]
+}
+
+export interface AuditData {
+  results:        ClientAudit[]
+  total_spend:    number
+  total_results:  number
+  total_accounts: number
+  updated_at:     string
+  date_from:      string
+  date_to:        string
+  prev_from:      string
+  prev_to:        string
+}
+
+export interface CampaignData {
+  campaigns: CampaignAudit[]
+  client_name: string
+  date_from: string
+  date_to: string
+}
+
+// ── Compute one client/campaign result from recent + prev metrics ─────────────
+// Priority order: CPL (weight ×3) > CTR (weight ×2) > CPM (weight ×1)
+
+function buildAuditItem(recent: Metrics, prev: Metrics | null) {
+  const hasCpl = recent.results > 0
+  const cpl_r  = hasCpl ? recent.spend / recent.results : 0
+
+  let ctr_change: number | null = null
+  let cpm_change: number | null = null
+  let cpl_change: number | null = null
+
+  if (prev && prev.impressions > 0) {
+    if (prev.ctr > 0) ctr_change = ((recent.ctr - prev.ctr) / prev.ctr) * 100
+    if (prev.cpm > 0) cpm_change = ((recent.cpm - prev.cpm) / prev.cpm) * 100
+    if (hasCpl && prev.results > 0) {
+      const cpl_p = prev.spend / prev.results
+      if (cpl_p > 0) cpl_change = ((cpl_r - cpl_p) / cpl_p) * 100
+    }
+  }
+
+  const ctr_s = ctrStatus(ctr_change)
+  const cpm_s = cpmStatus(cpm_change)
+  const cpl_s: Status | 'none' = hasCpl ? cplStatus(cpl_change) : 'none'
+
+  // CPL has triple weight, CTR double, CPM single
+  const score =
+    (hasCpl ? statusScore(cpl_s as Status) * 3 : 0) +
+    statusScore(ctr_s) * 2 +
+    statusScore(cpm_s) * 1
+
+  // Health driven primarily by CPL, with CTR/CPM providing nuance
+  let health: Health
+  if (hasCpl) {
+    if (cpl_s === 'green') {
+      health = ctr_s === 'green' ? 'excellent' : 'stable'
+    } else if (cpl_s === 'red') {
+      health = ctr_s === 'red' ? 'priority' : 'review'
+    } else {
+      // CPL neutral — let CTR decide
+      health = ctr_s === 'green' ? 'stable' : ctr_s === 'red' ? 'review' : 'review'
+    }
+  } else {
+    // No CPL — CTR primary, CPM secondary
+    if (ctr_s === 'green' && cpm_s !== 'red') health = 'stable'
+    else if (ctr_s === 'red' && cpm_s === 'red') health = 'review'
+    else if (ctr_s === 'red') health = 'review'
+    else health = 'stable'
+  }
+
+  const { diagnosis, action, insight, tip, tags } = diagnose(
+    ctr_s, cpm_s,
+    hasCpl ? (cpl_s as Status) : 'yellow',
+    hasCpl, recent, prev
+  )
+
+  return {
+    score, health,
+    ctr: recent.ctr, cpm: recent.cpm,
+    spend: recent.spend, impressions: recent.impressions,
+    results: recent.results, cpl: cpl_r,
+    ctr_change, cpm_change, cpl_change,
+    ctr_status: ctr_s, cpm_status: cpm_s, cpl_status: cpl_s,
+    has_cpl: hasCpl,
+    diagnosis, action, insight, tip, tags,
+  }
+}
+
+// ── Main audit (account level) ───────────────────────────────────────────────
 
 export async function runAudit(
-  accountMap: Record<string, string>   // account_id → client_name (from Supabase)
+  allowedIds:  Set<string>,
+  clientNames: Record<string, string>,
+  force = false
 ): Promise<AuditData> {
+  const cacheKey = Array.from(allowedIds).sort().join(',')
+  if (!force) {
+    const cached = _auditCache.get(cacheKey)
+    if (cached && Date.now() - cached.ts < AUDIT_TTL) return cached.data
+  }
+
   const today   = new Date()
   const fmt     = (d: Date) => d.toISOString().split('T')[0]
-  const sub     = (d: Date, days: number) => { const r = new Date(d); r.setDate(r.getDate() - days); return r }
+  const sub     = (d: Date, n: number) => { const r = new Date(d); r.setDate(r.getDate() - n); return r }
 
-  const recentTo   = sub(today, 1)   // yesterday
-  const recentFrom = sub(today, 7)   // 7 days back
+  const recentTo   = sub(today, 1)
+  const recentFrom = sub(today, 7)
   const prevTo     = sub(today, 8)
   const prevFrom   = sub(today, 14)
 
-  const [recentMap, prevMap] = await Promise.all([
-    fetchPeriod(fmt(recentFrom), fmt(recentTo)),
-    fetchPeriod(fmt(prevFrom),   fmt(prevTo)),
+  const [recentRows, prevRows] = await Promise.all([
+    fetchPeriod(fmt(recentFrom), fmt(recentTo), ACCOUNT_FIELDS, allowedIds),
+    fetchPeriod(fmt(prevFrom),   fmt(prevTo),   ACCOUNT_FIELDS, allowedIds),
   ])
 
+  // Index prev by account_id
+  const prevMap = new Map<string, Metrics>()
+  for (const r of prevRows) {
+    if (r.account_id) prevMap.set(r.account_id, toMetrics(r))
+  }
+
   const results: ClientAudit[] = []
-  let total_spend = 0
-  let total_leads = 0
+  let total_spend   = 0
+  let total_results = 0
 
-  for (const [accId, recent] of Array.from(recentMap.entries())) {
-    if (recent.spend < 500) continue   // skip accounts with negligible spend
+  for (const r of recentRows) {
+    if (!r.account_id || !allowedIds.has(r.account_id)) continue
+    const recent = toMetrics(r)
+    if (recent.spend < 100) continue
 
-    const prev = prevMap.get(accId)
+    const prev = prevMap.get(r.account_id) ?? null
+    const item = buildAuditItem(recent, prev)
 
-    const ctr_r  = recent.impressions > 0 ? (recent.clicks / recent.impressions) * 100  : 0
-    const cpm_r  = recent.impressions > 0 ? (recent.spend  / recent.impressions) * 1000 : 0
-    const freq_r = recent.reach > 0        ? recent.impressions / recent.reach           : 0
-    const cpl_r  = recent.leads > 0        ? recent.spend / recent.leads                 : 0
-    const hasCpl = recent.leads > 0
-
-    let ctr_change: number | null = null
-    let cpm_change: number | null = null
-    let cpl_change: number | null = null
-
-    if (prev && prev.impressions > 0) {
-      const ctr_p = (prev.clicks / prev.impressions) * 100
-      const cpm_p = (prev.spend  / prev.impressions) * 1000
-      if (ctr_p > 0) ctr_change = ((ctr_r - ctr_p) / ctr_p) * 100
-      if (cpm_p > 0) cpm_change = ((cpm_r - cpm_p) / cpm_p) * 100
-      if (hasCpl && prev.leads > 0) {
-        const cpl_p = prev.spend / prev.leads
-        if (cpl_p > 0) cpl_change = ((cpl_r - cpl_p) / cpl_p) * 100
-      }
-    }
-
-    const ctr_s  = ctrStatus(ctr_change)
-    const cpm_s  = cpmStatus(cpm_change)
-    const freq_s = freqStatus(freq_r, recent.reach > 0)
-    const cpl_s  = hasCpl ? cplStatus(cpl_change) : ('none' as const)
-
-    const score =
-      statusScore(ctr_s) +
-      statusScore(cpm_s) +
-      statusScore(freq_s) +
-      (hasCpl ? statusScore(cpl_s as Status) : 0)
-
-    const health: Health =
-      score >= 6  ? 'excellent' :
-      score >= 1  ? 'stable'    :
-      score >= -5 ? 'review'    : 'priority'
-
-    const { diagnosis, action, tags } = diagnose(
-      ctr_s, cpm_s, freq_s,
-      hasCpl ? (cpl_s as Status) : 'yellow',
-      hasCpl
-    )
-
-    total_spend += recent.spend
-    total_leads += recent.leads
+    total_spend   += recent.spend
+    total_results += recent.results
 
     results.push({
-      account_id:   accId,
-      account_name: recent.account_name,
-      client_name:  accountMap[accId] ?? recent.account_name,
-      score, health,
-      ctr: ctr_r, cpm: cpm_r, frequency: freq_r, cpl: cpl_r,
-      spend: recent.spend, leads: recent.leads,
-      ctr_change, cpm_change, cpl_change,
-      ctr_status: ctr_s, cpm_status: cpm_s, freq_status: freq_s, cpl_status: cpl_s,
-      diagnosis, action, tags, has_cpl: hasCpl,
+      account_id:   r.account_id,
+      client_name:  clientNames[r.account_id] ?? r.account_name ?? r.account_id,
+      ...item,
     })
   }
 
   results.sort((a, b) => a.score - b.score)
 
-  return { results, total_spend, total_leads, updated_at: new Date().toISOString() }
+  const auditResult: AuditData = {
+    results,
+    total_spend,
+    total_results,
+    total_accounts: results.length,
+    updated_at: new Date().toISOString(),
+    date_from:  fmt(recentFrom),
+    date_to:    fmt(recentTo),
+    prev_from:  fmt(prevFrom),
+    prev_to:    fmt(prevTo),
+  }
+  _auditCache.set(cacheKey, { data: auditResult, ts: Date.now() })
+  return auditResult
+}
+
+// ── Campaign breakdown for one account ───────────────────────────────────────
+
+export async function getCampaignBreakdown(
+  accountId:  string,
+  clientName: string
+): Promise<CampaignData> {
+  const today   = new Date()
+  const fmt     = (d: Date) => d.toISOString().split('T')[0]
+  const sub     = (d: Date, n: number) => { const r = new Date(d); r.setDate(r.getDate() - n); return r }
+
+  const recentTo   = sub(today, 1)
+  const recentFrom = sub(today, 7)
+  const prevTo     = sub(today, 8)
+  const prevFrom   = sub(today, 14)
+
+  const allowed = new Set([accountId])
+
+  const [recentRows, prevRows] = await Promise.all([
+    fetchPeriod(fmt(recentFrom), fmt(recentTo), CAMPAIGN_FIELDS, allowed),
+    fetchPeriod(fmt(prevFrom),   fmt(prevTo),   CAMPAIGN_FIELDS, allowed),
+  ])
+
+  // Index prev by campaign_id
+  const prevMap = new Map<string, Metrics>()
+  for (const r of prevRows) {
+    if (r.campaign_id) prevMap.set(r.campaign_id, toMetrics(r))
+  }
+
+  const campaigns: CampaignAudit[] = []
+
+  for (const r of recentRows) {
+    if (!r.campaign_id) continue
+    const recent = toMetrics(r)
+    if (recent.spend < 10) continue
+
+    const prev = prevMap.get(r.campaign_id) ?? null
+    const item = buildAuditItem(recent, prev)
+
+    campaigns.push({
+      campaign_id: r.campaign_id,
+      campaign:    r.campaign ?? r.campaign_id,
+      ...item,
+    })
+  }
+
+  campaigns.sort((a, b) => a.score - b.score)
+
+  return {
+    campaigns, client_name: clientName,
+    date_from: fmt(recentFrom),
+    date_to:   fmt(recentTo),
+  }
+}
+
+// ── Creative lifecycle tracker ───────────────────────────────────────────────
+
+interface RawAdRow extends RawRow {
+  ad_id?:         string | null
+  ad_name?:       string | null
+  adset_name?:    string | null
+  thumbnail_url?: string | null
+}
+
+const CREATIVE_FIELDS = [
+  'account_id', 'ad_id', 'ad_name', 'campaign', 'adset_name',
+  'spend', 'impressions', 'link_clicks', 'thumbnail_url',
+].join(',')
+
+export type Lifecycle = 'growth' | 'peak' | 'decline' | 'exhausted'
+
+export interface CreativeLifecycle {
+  ad_id:         string
+  ad_name:       string
+  campaign:      string
+  adset_name:    string
+  thumbnail_url: string | null
+  spend_week:    number   // last 7d
+  spend_prev:    number   // prev 7d
+  impressions:   number   // last 7d
+  ctr:           number   // link click CTR % (last 7d)
+  ctr_change:    number | null   // % change vs prev 7d
+  lifecycle:     Lifecycle
+  is_new:        boolean  // no data in prev period → ad < 8 days old
+}
+
+export interface CreativeData {
+  creatives:  CreativeLifecycle[]
+  date_from:  string
+  date_to:    string
+  prev_from:  string
+}
+
+// Lifecycle based purely on CTR change (frequency removed from all analyses)
+function classifyLifecycle(ctrChange: number | null, isNew: boolean): Lifecycle {
+  if (isNew) return 'growth'
+  if (ctrChange === null) return 'peak'
+  if (ctrChange < -30) return 'exhausted'
+  if (ctrChange < -10) return 'decline'
+  if (ctrChange > 5)   return 'growth'
+  return 'peak'
+}
+
+async function fetchAdPeriod(
+  dateFrom:  string,
+  dateTo:    string,
+  accountId: string,
+): Promise<RawAdRow[]> {
+  const apiKey = process.env.WINDSOR_API_KEY
+  if (!apiKey) throw new Error('WINDSOR_API_KEY no configurada')
+
+  const url = new URL(WINDSOR_FACEBOOK)
+  url.searchParams.set('api_key',   apiKey)
+  url.searchParams.set('date_from', dateFrom)
+  url.searchParams.set('date_to',   dateTo)
+  url.searchParams.set('fields',    CREATIVE_FIELDS)
+  url.searchParams.set('_renderer', 'json')
+  // Server-side account filter → drastically reduces payload size
+  url.searchParams.set('_filters',  JSON.stringify([['account_id', 'eq', accountId]]))
+
+  const res = await fetch(url.toString(), { cache: 'no-store' })
+  if (!res.ok) throw new Error(`Windsor error ${res.status}`)
+
+  const json = await res.json()
+  const rows: RawAdRow[] = json.data ?? []
+  // Client-side fallback filter in case _filters isn't supported by this connector
+  return rows.filter(r => (!r.account_id || r.account_id === accountId) && r.ad_id)
+}
+
+export async function getCreativeLifecycle(accountId: string): Promise<CreativeData> {
+  const today = new Date()
+  const fmt   = (d: Date) => d.toISOString().split('T')[0]
+  const sub   = (d: Date, n: number) => { const r = new Date(d); r.setDate(r.getDate() - n); return r }
+
+  const recentTo   = sub(today, 1)
+  const recentFrom = sub(today, 7)
+  const prevTo     = sub(today, 8)
+  const prevFrom   = sub(today, 14)
+
+  // Only 2 parallel calls — no MTD needed
+  const [recentRows, prevRows] = await Promise.all([
+    fetchAdPeriod(fmt(recentFrom), fmt(recentTo), accountId),
+    fetchAdPeriod(fmt(prevFrom),   fmt(prevTo),   accountId),
+  ])
+
+  const prevMap = new Map<string, RawAdRow>(prevRows.map(r => [r.ad_id!, r]))
+
+  const creatives: CreativeLifecycle[] = []
+
+  for (const r of recentRows) {
+    if (!r.ad_id) continue
+    const imp     = r.impressions ?? 0
+    const lc      = r.link_clicks ?? 0
+    const spend_w = r.spend       ?? 0
+    if (imp < 50 && spend_w < 200) continue
+
+    const ctr_r = imp > 0 ? (lc / imp) * 100 : 0
+
+    const prev   = prevMap.get(r.ad_id)
+    const is_new = !prev || (prev.impressions ?? 0) === 0
+
+    let ctr_change: number | null = null
+    if (!is_new) {
+      const ctr_p = (prev!.link_clicks ?? 0) / (prev!.impressions ?? 1) * 100
+      if (ctr_p > 0) ctr_change = ((ctr_r - ctr_p) / ctr_p) * 100
+    }
+
+    const lifecycle = classifyLifecycle(ctr_change, is_new)
+
+    creatives.push({
+      ad_id:         r.ad_id,
+      ad_name:       r.ad_name       ?? r.ad_id,
+      campaign:      r.campaign      ?? '—',
+      adset_name:    r.adset_name    ?? '—',
+      thumbnail_url: r.thumbnail_url ?? null,
+      spend_week:    spend_w,
+      spend_prev:    prev?.spend     ?? 0,
+      impressions:   imp,
+      ctr:           ctr_r,
+      ctr_change,
+      lifecycle,
+      is_new,
+    })
+  }
+
+  const ORDER: Record<Lifecycle, number> = { exhausted: 0, decline: 1, peak: 2, growth: 3 }
+  creatives.sort((a, b) => ORDER[a.lifecycle] - ORDER[b.lifecycle] || b.spend_week - a.spend_week)
+
+  return {
+    creatives,
+    date_from: fmt(recentFrom),
+    date_to:   fmt(recentTo),
+    prev_from: fmt(prevFrom),
+  }
 }

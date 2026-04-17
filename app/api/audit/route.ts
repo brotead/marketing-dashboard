@@ -1,10 +1,10 @@
-import { NextResponse } from 'next/server'
-import { runAudit }    from '@/lib/audit'
+import { NextRequest, NextResponse } from 'next/server'
+import { runAudit } from '@/lib/audit'
 import { createClient } from '@supabase/supabase-js'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const force = req.nextUrl.searchParams.get('force') === 'true'
   try {
-    // Build account_id → client_name map from Supabase
     const sb = createClient(
       process.env.SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_KEY!
@@ -14,14 +14,19 @@ export async function GET() {
       .select('account_id, client_name')
       .eq('source', 'facebook')
 
-    const accountMap: Record<string, string> = {}
+    const allowedIds  = new Set<string>()
+    const clientNames: Record<string, string> = {}
+
     for (const b of budgets ?? []) {
-      if (b.account_id && b.client_name && !accountMap[b.account_id]) {
-        accountMap[b.account_id] = b.client_name
+      if (b.account_id && b.client_name) {
+        allowedIds.add(b.account_id)
+        if (!clientNames[b.account_id]) {
+          clientNames[b.account_id] = b.client_name
+        }
       }
     }
 
-    const data = await runAudit(accountMap)
+    const data = await runAudit(allowedIds, clientNames, force)
     return NextResponse.json(data)
   } catch (err) {
     console.error('[Audit]', err)

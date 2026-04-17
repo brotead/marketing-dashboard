@@ -3,13 +3,12 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
-import { BarChart2, Target, LayoutDashboard, Zap, ShieldCheck } from 'lucide-react'
+import { BarChart2, Target, LayoutDashboard, ShieldCheck } from 'lucide-react'
 
 const links = [
   { href: '/dashboard',   label: 'Dashboard',  icon: LayoutDashboard },
   { href: '/cashflow',    label: 'Cashflow',   icon: BarChart2 },
   { href: '/rendimiento', label: 'Objetivos',  icon: Target },
-  { href: '/creativos',   label: 'Creativos',  icon: Zap },
   { href: '/audit',       label: 'AD Auditor', icon: ShieldCheck },
 ]
 
