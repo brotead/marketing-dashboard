@@ -9,6 +9,7 @@ interface Props {
   budgets: BudgetEntry[]   // all budgets for this client+month
   daysPassed: number
   daysInMonth: number
+  onClick?: () => void
 }
 
 function currency(n: number) {
@@ -18,7 +19,7 @@ function currency(n: number) {
 }
 
 export default function DashboardCard({
-  clientName, metaAccount, googleAccount, budgets, daysPassed, daysInMonth,
+  clientName, metaAccount, googleAccount, budgets, daysPassed, daysInMonth, onClick,
 }: Props) {
   const metaBudgets   = budgets.filter((b) => b.source === 'facebook'   && !b.paused)
   const googleBudgets = budgets.filter((b) => b.source === 'google' && !b.paused)
@@ -68,7 +69,10 @@ export default function DashboardCard({
   const hasGoogle = !!googleAccount || googleBudget > 0
 
   return (
-    <div className={`bg-white rounded-xl border ${borderColor} p-4 flex flex-col gap-3 hover:shadow-sm transition`}>
+    <div
+      className={`bg-white rounded-xl border ${borderColor} p-4 flex flex-col gap-3 hover:shadow-md transition ${onClick ? 'cursor-pointer' : ''}`}
+      onClick={onClick}
+    >
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { RefreshCw } from 'lucide-react'
 import DashboardCard from '@/components/DashboardCard'
 import type { AccountData, BudgetEntry } from '@/lib/types'
@@ -17,13 +18,14 @@ function currency(n: number) {
 }
 
 export default function DashboardPage() {
-  const today = new Date()
-  const [year, setYear]     = useState(today.getFullYear())
-  const [month, setMonth]   = useState(today.getMonth() + 1)
+  const today  = new Date()
+  const router = useRouter()
+  const [year,     setYear]     = useState(today.getFullYear())
+  const [month,    setMonth]    = useState(today.getMonth() + 1)
   const [accounts, setAccounts] = useState<AccountData[]>([])
-  const [budgets, setBudgets]   = useState<BudgetEntry[]>([])
-  const [loading, setLoading]   = useState(true)
-  const [error, setError]       = useState<string | null>(null)
+  const [budgets,  setBudgets]  = useState<BudgetEntry[]>([])
+  const [loading,  setLoading]  = useState(true)
+  const [error,    setError]    = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -46,37 +48,99 @@ export default function DashboardPage() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
+  // Auto-refresh every hour so budget/campaign changes made in Cashflow are reflected here
+  useEffect(() => {
+    const id = setInterval(() => { fetchData() }, 60 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [fetchData])
+
   const monthBudgets = budgets.filter((b) => b.year === year && b.month === month)
 
   const daysInMonth = new Date(year, month, 0).getDate()
+  // Data from Windsor is through yesterday — align pacing to match
   const daysPassed  =
     year === today.getFullYear() && month === today.getMonth() + 1
-      ? today.getDate()
+      ? Math.max(1, today.getDate() - 1)
       : daysInMonth
+  const pctExpected = (daysPassed / daysInMonth) * 100
 
-  // Group budgets by client
-  const clients = Array.from(new Set(monthBudgets.map((b) => b.client_name))).sort()
+  // All unique clients in this month
+  const allClients = Array.from(new Set(monthBudgets.map((b) => b.client_name)))
 
-  // Summary totals — only accounts mapped to configured clients
-  const configuredMetaIds   = new Set(monthBudgets.filter(b => b.source === 'facebook').map(b => b.account_id))
-  const configuredGoogleIds = new Set(monthBudgets.filter(b => b.source === 'google').map(b => b.account_id))
+  // Separate paused (all campaigns paused) from active
+  const activeClients = allClients.filter(client => {
+    const cb = monthBudgets.filter(b => b.client_name === client)
+    return cb.some(b => !b.paused)
+  })
+  const pausedClients = allClients.filter(client => {
+    const cb = monthBudgets.filter(b => b.client_name === client)
+    return cb.length > 0 && cb.every(b => b.paused)
+  })
+
+  // Helper to compute pacing deviation for a client
+  function clientDeviation(client: string): number {
+    const cb = monthBudgets.filter(b => b.client_name === client && !b.paused)
+    const totalBudget = cb.reduce((s, b) => s + b.budget_total, 0)
+    if (totalBudget === 0) return 0
+
+    const metaAccountId   = cb.find(b => b.source === 'facebook')?.account_id
+    const googleAccountId = cb.find(b => b.source === 'google')?.account_id
+    const metaSpend   = accounts.find(a => a.account_id === metaAccountId && a.source === 'facebook')?.spend ?? 0
+    const googleSpend = accounts.find(a => a.account_id === googleAccountId && a.source === 'google')?.spend ?? 0
+    const totalSpend  = metaSpend + googleSpend
+    const pctConsumed = (totalSpend / totalBudget) * 100
+    return pctConsumed - pctExpected
+  }
+
+  // Sort active clients: bajo ritmo (most negative deviation) first → en ritmo last
+  const sortedActiveClients = [...activeClients].sort((a, b) => clientDeviation(a) - clientDeviation(b))
+
+  // Summary totals — only active (non-paused) accounts
+  const configuredMetaIds   = new Set(monthBudgets.filter(b => b.source === 'facebook' && !b.paused).map(b => b.account_id))
+  const configuredGoogleIds = new Set(monthBudgets.filter(b => b.source === 'google'   && !b.paused).map(b => b.account_id))
   const totalMetaSpend   = accounts.filter(a => a.source === 'facebook' && configuredMetaIds.has(a.account_id)).reduce((s, a) => s + a.spend, 0)
   const totalGoogleSpend = accounts.filter(a => a.source === 'google'   && configuredGoogleIds.has(a.account_id)).reduce((s, a) => s + a.spend, 0)
   const totalSpend       = totalMetaSpend + totalGoogleSpend
 
-  const totalMetaBudget   = monthBudgets.filter(b => b.source === 'facebook'   && !b.paused).reduce((s, b) => s + b.budget_total, 0)
-  const totalGoogleBudget = monthBudgets.filter(b => b.source === 'google' && !b.paused).reduce((s, b) => s + b.budget_total, 0)
+  const totalMetaBudget   = monthBudgets.filter(b => b.source === 'facebook' && !b.paused).reduce((s, b) => s + b.budget_total, 0)
+  const totalGoogleBudget = monthBudgets.filter(b => b.source === 'google'   && !b.paused).reduce((s, b) => s + b.budget_total, 0)
   const totalBudget       = totalMetaBudget + totalGoogleBudget
 
-  // Active client count: clients that have any Meta or Google spend this period
-  const activeCount = clients.filter((client) => {
-    const clientBudgets = monthBudgets.filter(b => b.client_name === client)
-    const metaAccountId   = clientBudgets.find(b => b.source === 'facebook')?.account_id
-    const googleAccountId = clientBudgets.find(b => b.source === 'google')?.account_id
+  // Active client count = clients with at least one non-paused campaign with some spend
+  const activeCount = activeClients.filter(client => {
+    const cb = monthBudgets.filter(b => b.client_name === client && !b.paused)
+    const metaAccountId   = cb.find(b => b.source === 'facebook')?.account_id
+    const googleAccountId = cb.find(b => b.source === 'google')?.account_id
     const metaSpend   = accounts.find(a => a.account_id === metaAccountId)?.spend ?? 0
     const googleSpend = accounts.find(a => a.account_id === googleAccountId)?.spend ?? 0
     return metaSpend + googleSpend > 0
   }).length
+
+  function handleClientClick(client: string) {
+    const cb = monthBudgets.filter(b => b.client_name === client && !b.paused)
+    const source = cb.find(b => b.source === 'facebook') ? 'facebook' : 'google'
+    router.push(`/cashflow?client=${encodeURIComponent(client)}&source=${source}`)
+  }
+
+  function renderCard(client: string) {
+    const clientBudgets   = monthBudgets.filter(b => b.client_name === client)
+    const metaAccountId   = clientBudgets.find(b => b.source === 'facebook')?.account_id
+    const googleAccountId = clientBudgets.find(b => b.source === 'google')?.account_id
+    const metaAccount     = accounts.find(a => a.account_id === metaAccountId && a.source === 'facebook')
+    const googleAccount   = accounts.find(a => a.account_id === googleAccountId && a.source === 'google')
+    return (
+      <DashboardCard
+        key={client}
+        clientName={client}
+        metaAccount={metaAccount}
+        googleAccount={googleAccount}
+        budgets={clientBudgets}
+        daysPassed={daysPassed}
+        daysInMonth={daysInMonth}
+        onClick={() => handleClientClick(client)}
+      />
+    )
+  }
 
   return (
     <div>
@@ -145,12 +209,12 @@ export default function DashboardPage() {
             <p className={`text-lg font-bold ${totalBudget - totalSpend < 0 ? 'text-red-600' : 'text-gray-900'}`}>
               {totalBudget > 0 ? currency(totalBudget - totalSpend) : '—'}
             </p>
-            <p className="text-xs text-gray-400">{clients.length} clientes</p>
+            <p className="text-xs text-gray-400">{activeClients.length} clientes activos</p>
           </div>
           <div className="bg-white rounded-xl border border-gray-100 px-4 py-3">
             <p className="text-xs text-gray-400 mb-1">Clientes activos</p>
             <p className="text-lg font-bold text-gray-900">{activeCount}</p>
-            <p className="text-xs text-gray-400">de {clients.length} configurados</p>
+            <p className="text-xs text-gray-400">de {activeClients.length} configurados</p>
           </div>
         </div>
       )}
@@ -164,31 +228,30 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Client cards */}
-      {!loading && clients.length > 0 && (
+      {/* Active client cards — sorted by pacing (bajo ritmo first) */}
+      {!loading && sortedActiveClients.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {clients.map((client) => {
-            const clientBudgets = monthBudgets.filter((b) => b.client_name === client)
-            const metaAccountId   = clientBudgets.find(b => b.source === 'facebook')?.account_id
-            const googleAccountId = clientBudgets.find(b => b.source === 'google')?.account_id
-            const metaAccount   = accounts.find(a => a.account_id === metaAccountId && a.source === 'facebook')
-            const googleAccount = accounts.find(a => a.account_id === googleAccountId && a.source === 'google')
-            return (
-              <DashboardCard
-                key={client}
-                clientName={client}
-                metaAccount={metaAccount}
-                googleAccount={googleAccount}
-                budgets={clientBudgets}
-                daysPassed={daysPassed}
-                daysInMonth={daysInMonth}
-              />
-            )
-          })}
+          {sortedActiveClients.map(renderCard)}
         </div>
       )}
 
-      {!loading && clients.length === 0 && (
+      {/* Paused clients separator + cards */}
+      {!loading && pausedClients.length > 0 && (
+        <>
+          <div className="flex items-center gap-3 mt-8 mb-4">
+            <div className="flex-1 border-t border-gray-200" />
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-1">
+              Clientes pausados
+            </span>
+            <div className="flex-1 border-t border-gray-200" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 opacity-60">
+            {pausedClients.map(renderCard)}
+          </div>
+        </>
+      )}
+
+      {!loading && allClients.length === 0 && (
         <div className="flex items-center justify-center h-48 text-gray-400 text-sm">
           No hay clientes configurados para este período
         </div>

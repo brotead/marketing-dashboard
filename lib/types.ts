@@ -117,6 +117,7 @@ export interface CampaignSpend {
   campaign_name: string
   adset_name?: string   // populated when Windsor returns adset-level data
   spend: number
+  today_spend?: number  // spend on today's date specifically (0 if Windsor hasn't synced yet)
 }
 
 export interface AdCreative {

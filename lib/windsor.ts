@@ -4,6 +4,15 @@ const WINDSOR_FACEBOOK  = 'https://connectors.windsor.ai/facebook'
 const WINDSOR_GOOGLE    = 'https://connectors.windsor.ai/google_ads'
 const WINDSOR_INSTAGRAM = 'https://connectors.windsor.ai/instagram'
 
+// ── In-memory cache (1h TTL) ────────────────────────────────────────────────────
+interface WindsorCached {
+  accounts:  AccountData[]
+  campaigns: CampaignSpend[]
+  adsets:    CampaignSpend[]
+}
+const _windsorCache = new Map<string, { data: WindsorCached; ts: number }>()
+const WINDSOR_TTL = 60 * 60 * 1000 // 1 hour
+
 interface RawRecord {
   campaign_id: string
   campaign_name: string | null
@@ -36,8 +45,12 @@ async function fetchAccounts(
   const dateFrom = `${year}-${String(month).padStart(2, '0')}-01`
   const today = new Date()
   const isCurrentMonth = year === today.getFullYear() && month === today.getMonth() + 1
+  const yesterday = new Date(today)
+  yesterday.setDate(yesterday.getDate() - 1)
+  // Show spend through yesterday to avoid partial-day figures.
+  // On the 1st of the month yesterday is still in the previous month, so fall back to today.
   const dateTo = isCurrentMonth
-    ? today.toISOString().split('T')[0]
+    ? (today.getDate() > 1 ? yesterday.toISOString().split('T')[0] : today.toISOString().split('T')[0])
     : new Date(year, month, 0).toISOString().split('T')[0]
 
   const sevenDaysAgo = new Date(today)
@@ -107,9 +120,12 @@ async function fetchAccounts(
         source:        sourceLabel,
         campaign_name: r.campaign_name ?? '',
         spend:         0,
+        today_spend:   0,
       })
     }
-    campaignMap.get(campKey)!.spend += r.spend ?? 0
+    const campEntry = campaignMap.get(campKey)!
+    campEntry.spend += r.spend ?? 0
+    if (r.date === dateTo) campEntry.today_spend = (campEntry.today_spend ?? 0) + (r.spend ?? 0)
 
     // Adset level (only when Windsor returns adset data)
     if (r.adset_id) {
@@ -121,9 +137,12 @@ async function fetchAccounts(
           campaign_name: r.campaign_name ?? '',
           adset_name:    r.adset_name ?? undefined,
           spend:         0,
+          today_spend:   0,
         })
       }
-      adsetMap.get(adsetKey)!.spend += r.spend ?? 0
+      const adsetEntry = adsetMap.get(adsetKey)!
+      adsetEntry.spend += r.spend ?? 0
+      if (r.date === dateTo) adsetEntry.today_spend = (adsetEntry.today_spend ?? 0) + (r.spend ?? 0)
     }
   }
 
@@ -521,8 +540,16 @@ const EMPTY_FETCH: AccountFetchResult = { accounts: [], campaigns: [], adsets: [
 
 export async function fetchWindsorAccounts(
   year: number,
-  month: number
+  month: number,
+  force = false
 ): Promise<{ accounts: AccountData[]; campaigns: CampaignSpend[]; adsets: CampaignSpend[] }> {
+  const key = `${year}-${month}`
+
+  if (!force) {
+    const cached = _windsorCache.get(key)
+    if (cached && Date.now() - cached.ts < WINDSOR_TTL) return cached.data
+  }
+
   const [meta, google] = await Promise.all([
     fetchAccounts(year, month, WINDSOR_FACEBOOK, 'facebook').catch((e) => {
       console.error('[Windsor] Facebook connector error (ignorado):', e.message)
@@ -533,9 +560,12 @@ export async function fetchWindsorAccounts(
       return EMPTY_FETCH
     }),
   ])
-  return {
+
+  const result: WindsorCached = {
     accounts:  [...meta.accounts,  ...google.accounts],
     campaigns: [...meta.campaigns, ...google.campaigns],
     adsets:    [...meta.adsets,    ...google.adsets],
   }
+  _windsorCache.set(key, { data: result, ts: Date.now() })
+  return result
 }
