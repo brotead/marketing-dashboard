@@ -7,29 +7,41 @@ const AUDIT_TTL = 15 * 60 * 1000 // 15 minutes
 export type Status = 'green' | 'yellow' | 'red'
 export type Health = 'excellent' | 'stable' | 'review' | 'priority'
 
+// ── Client type: messaging vs IG visits ─────────────────────────────────────
+
+export type ClientType = 'messaging' | 'ig'
+
+const MESSAGING_CLIENT_NAMES = new Set(['DURAPLAS', 'HSF', 'BERTOTTO', 'REMAX', 'BB'])
+
+export function getClientType(name: string): ClientType {
+  return MESSAGING_CLIENT_NAMES.has(name.toUpperCase().trim()) ? 'messaging' : 'ig'
+}
+
 // ── Windsor raw types ────────────────────────────────────────────────────────
 
 interface RawRow {
   account_id?:    string | null
   account_name?:  string | null
   campaign_id?:   string | null
-  campaign?:      string | null   // Windsor uses "campaign" not "campaign_name"
+  campaign?:      string | null
   spend?:         number | null
   impressions?:   number | null
-  cpm?:           number | null   // pre-computed in account currency (ARS)
-  link_clicks?:   number | null   // used to compute CTR (link click-through rate)
+  cpm?:           number | null
+  link_clicks?:   number | null
   actions_lead?:  number | null
   actions_onsite_conversion_lead_grouped?:                         number | null
   actions_onsite_conversion_messaging_conversation_started_7d?:   number | null
+  actions_instagram_profile_visit?:                                number | null
 }
 
-// Windsor fields — CTR computed as link_clicks/impressions. Frequency removed.
+// Windsor fields — CTR computed as link_clicks/impressions
 const ACCOUNT_FIELDS = [
   'account_id', 'account_name',
   'spend', 'impressions', 'cpm', 'link_clicks',
   'actions_lead',
   'actions_onsite_conversion_lead_grouped',
   'actions_onsite_conversion_messaging_conversation_started_7d',
+  'actions_instagram_profile_visit',
 ].join(',')
 
 const CAMPAIGN_FIELDS = [
@@ -38,33 +50,45 @@ const CAMPAIGN_FIELDS = [
   'actions_lead',
   'actions_onsite_conversion_lead_grouped',
   'actions_onsite_conversion_messaging_conversation_started_7d',
+  'actions_instagram_profile_visit',
 ].join(',')
 
 // ── Computed metrics ─────────────────────────────────────────────────────────
 
 export interface Metrics {
-  spend:       number
-  impressions: number
-  ctr:         number   // link click CTR in % = (link_clicks / impressions) * 100
-  cpm:         number   // in account currency
-  link_clicks: number
-  results:     number   // leads + messages + grouped leads
+  spend:            number
+  impressions:      number
+  ctr:              number   // link click CTR in %
+  cpm:              number
+  link_clicks:      number
+  results:          number   // total results
+  messaging:        number   // conversaciones iniciadas
+  ig_visits:        number   // Instagram profile visits
+}
+
+// Windsor sometimes returns numeric fields as strings — always parse
+function n(v: number | null | undefined): number {
+  if (v == null) return 0
+  const p = typeof v === 'string' ? parseFloat(v as unknown as string) : v
+  return isNaN(p) ? 0 : p
 }
 
 function toMetrics(r: RawRow): Metrics {
-  const impressions = r.impressions ?? 0
-  const link_clicks = r.link_clicks ?? 0
-  const results =
-    (r.actions_lead ?? 0) +
-    (r.actions_onsite_conversion_lead_grouped ?? 0) +
-    (r.actions_onsite_conversion_messaging_conversation_started_7d ?? 0)
+  const impressions = n(r.impressions)
+  const link_clicks = n(r.link_clicks)
+  const messaging   = n(r.actions_onsite_conversion_messaging_conversation_started_7d)
+  const ig_visits   = n(r.actions_instagram_profile_visit)
+  // results = only lead-type conversions; messaging is tracked separately
+  const results     = n(r.actions_lead) + n(r.actions_onsite_conversion_lead_grouped)
   return {
-    spend:       r.spend ?? 0,
+    spend:       n(r.spend),
     impressions,
     ctr:         impressions > 0 ? (link_clicks / impressions) * 100 : 0,
-    cpm:         r.cpm ?? 0,
+    cpm:         n(r.cpm),
     link_clicks,
     results,
+    messaging,
+    ig_visits,
   }
 }
 
@@ -116,6 +140,13 @@ function cplStatus(change: number | null): Status {
   if (change === null) return 'yellow'
   if (change < -10)   return 'green'
   if (change >  18)   return 'red'
+  return 'yellow'
+}
+// Conversiones: more is always better → positive = green, negative = red
+function conversionsStatus(change: number | null): Status {
+  if (change === null) return 'yellow'
+  if (change >   5)   return 'green'
+  if (change < -10)   return 'red'
   return 'yellow'
 }
 function statusScore(s: Status): number {
@@ -216,53 +247,67 @@ function diagnose(
 // ── Audit types ──────────────────────────────────────────────────────────────
 
 export interface CampaignAudit {
-  campaign_id:  string
-  campaign:     string
-  spend:        number
-  impressions:  number
-  ctr:          number
-  cpm:          number
-  results:      number
-  cpl:          number
-  ctr_change:   number | null
-  cpm_change:   number | null
-  cpl_change:   number | null
-  ctr_status:   Status
-  cpm_status:   Status
-  cpl_status:   Status | 'none'
-  has_cpl:      boolean
-  score:        number
-  health:       Health
-  diagnosis:    string
-  action:       string
-  insight:      string
-  tip:          string
-  tags:         string[]
+  campaign_id:          string
+  campaign:             string
+  spend:                number
+  impressions:          number
+  ctr:                  number
+  cpm:                  number
+  results:              number
+  cpl:                  number
+  ctr_change:           number | null
+  cpm_change:           number | null
+  cpl_change:           number | null
+  ctr_status:           Status
+  cpm_status:           Status
+  cpl_status:           Status | 'none'
+  has_cpl:              boolean
+  conversions:          number
+  conversions_change:   number | null
+  conversions_status:   Status | 'none'
+  spend_change:         number | null
+  score:                number
+  health:               Health
+  diagnosis:            string
+  action:               string
+  insight:              string
+  tip:                  string
+  tags:                 string[]
 }
 
 export interface ClientAudit {
-  account_id:   string
-  client_name:  string
-  score:        number
-  health:       Health
-  spend:        number
-  impressions:  number
-  ctr:          number
-  cpm:          number
-  results:      number
-  cpl:          number
-  ctr_change:   number | null
-  cpm_change:   number | null
-  cpl_change:   number | null
-  ctr_status:   Status
-  cpm_status:   Status
-  cpl_status:   Status | 'none'
-  has_cpl:      boolean
-  diagnosis:    string
-  action:       string
-  insight:      string
-  tip:          string
-  tags:         string[]
+  account_id:             string
+  client_name:            string
+  client_type:            ClientType
+  score:                  number
+  health:                 Health
+  spend:                  number
+  impressions:            number
+  ctr:                    number
+  cpm:                    number
+  results:                number
+  cpl:                    number
+  ctr_change:             number | null
+  cpm_change:             number | null
+  cpl_change:             number | null
+  ctr_status:             Status
+  cpm_status:             Status
+  cpl_status:             Status | 'none'
+  has_cpl:                boolean
+  conversions:            number        // messaging or ig_visits depending on client_type
+  conversions_change:     number | null
+  conversions_status:     Status | 'none'
+  spend_change:           number | null
+  diagnosis:              string
+  action:                 string
+  insight:                string
+  tip:                    string
+  tags:                   string[]
+  // Month-over-month: same 7 days last month
+  mom_cpl:        number
+  mom_ctr:        number
+  mom_cpl_change: number | null
+  mom_ctr_change: number | null
 }
 
 export interface AuditData {
@@ -275,46 +320,71 @@ export interface AuditData {
   date_to:        string
   prev_from:      string
   prev_to:        string
+  mom_from:       string
+  mom_to:         string
 }
 
 export interface CampaignData {
-  campaigns: CampaignAudit[]
+  campaigns:   CampaignAudit[]
   client_name: string
-  date_from: string
-  date_to: string
+  client_type: ClientType
+  date_from:   string
+  date_to:     string
 }
 
 // ── Compute one client/campaign result from recent + prev metrics ─────────────
-// Priority order: CPL (weight ×3) > CTR (weight ×2) > CPM (weight ×1)
 
-function buildAuditItem(recent: Metrics, prev: Metrics | null) {
-  const hasCpl = recent.results > 0
-  const cpl_r  = hasCpl ? recent.spend / recent.results : 0
+function buildAuditItem(recent: Metrics, prev: Metrics | null, clientType: ClientType = 'ig') {
+  // For messaging clients: CPL = spend / messaging conversations
+  // For IG/other clients: CPL = spend / lead results
+  const effectiveResults = clientType === 'messaging' ? recent.messaging : recent.results
+  const hasCpl = effectiveResults > 0
+  const cpl_r  = hasCpl ? recent.spend / effectiveResults : 0
 
-  let ctr_change: number | null = null
-  let cpm_change: number | null = null
-  let cpl_change: number | null = null
+  // Pick conversions based on client type
+  const conversions_r = clientType === 'messaging' ? recent.messaging : recent.ig_visits
+  const conversions_p = prev ? (clientType === 'messaging' ? prev.messaging : prev.ig_visits) : 0
+
+  let ctr_change:         number | null = null
+  let cpm_change:         number | null = null
+  let cpl_change:         number | null = null
+  let conversions_change: number | null = null
+  let spend_change:       number | null = null
 
   if (prev && prev.impressions > 0) {
     if (prev.ctr > 0) ctr_change = ((recent.ctr - prev.ctr) / prev.ctr) * 100
     if (prev.cpm > 0) cpm_change = ((recent.cpm - prev.cpm) / prev.cpm) * 100
-    if (hasCpl && prev.results > 0) {
-      const cpl_p = prev.spend / prev.results
+    const prevEffectiveResults = clientType === 'messaging' ? prev.messaging : prev.results
+    if (hasCpl && prevEffectiveResults > 0) {
+      const cpl_p = prev.spend / prevEffectiveResults
       if (cpl_p > 0) cpl_change = ((cpl_r - cpl_p) / cpl_p) * 100
     }
+  }
+
+  // Conversions change — only needs prev > 0, not impressions
+  if (prev && conversions_p > 0) {
+    conversions_change = ((conversions_r - conversions_p) / conversions_p) * 100
+  } else if (prev && conversions_r > 0 && conversions_p === 0) {
+    conversions_change = 100 // went from 0 to something
+  }
+
+  // Spend change
+  if (prev && prev.spend > 0) {
+    spend_change = ((recent.spend - prev.spend) / prev.spend) * 100
   }
 
   const ctr_s = ctrStatus(ctr_change)
   const cpm_s = cpmStatus(cpm_change)
   const cpl_s: Status | 'none' = hasCpl ? cplStatus(cpl_change) : 'none'
+  const conv_s: Status | 'none' = conversions_r > 0 || conversions_p > 0
+    ? conversionsStatus(conversions_change)
+    : 'none'
 
-  // CPL has triple weight, CTR double, CPM single
   const score =
     (hasCpl ? statusScore(cpl_s as Status) * 3 : 0) +
     statusScore(ctr_s) * 2 +
     statusScore(cpm_s) * 1
 
-  // Health driven primarily by CPL, with CTR/CPM providing nuance
   let health: Health
   if (hasCpl) {
     if (cpl_s === 'green') {
@@ -322,11 +392,9 @@ function buildAuditItem(recent: Metrics, prev: Metrics | null) {
     } else if (cpl_s === 'red') {
       health = ctr_s === 'red' ? 'priority' : 'review'
     } else {
-      // CPL neutral — let CTR decide
       health = ctr_s === 'green' ? 'stable' : ctr_s === 'red' ? 'review' : 'review'
     }
   } else {
-    // No CPL — CTR primary, CPM secondary
     if (ctr_s === 'green' && cpm_s !== 'red') health = 'stable'
     else if (ctr_s === 'red' && cpm_s === 'red') health = 'review'
     else if (ctr_s === 'red') health = 'review'
@@ -344,6 +412,10 @@ function buildAuditItem(recent: Metrics, prev: Metrics | null) {
     ctr: recent.ctr, cpm: recent.cpm,
     spend: recent.spend, impressions: recent.impressions,
     results: recent.results, cpl: cpl_r,
+    conversions: conversions_r,
+    conversions_change,
+    conversions_status: conv_s,
+    spend_change,
     ctr_change, cpm_change, cpl_change,
     ctr_status: ctr_s, cpm_status: cpm_s, cpl_status: cpl_s,
     has_cpl: hasCpl,
@@ -373,15 +445,24 @@ export async function runAudit(
   const prevTo     = sub(today, 8)
   const prevFrom   = sub(today, 14)
 
-  const [recentRows, prevRows] = await Promise.all([
+  // Same 7-day window but last month (e.g. Apr 10-16 → Mar 10-16)
+  const momFrom = new Date(recentFrom); momFrom.setMonth(momFrom.getMonth() - 1)
+  const momTo   = new Date(recentTo);   momTo.setMonth(momTo.getMonth()   - 1)
+
+  const [recentRows, prevRows, momRows] = await Promise.all([
     fetchPeriod(fmt(recentFrom), fmt(recentTo), ACCOUNT_FIELDS, allowedIds),
     fetchPeriod(fmt(prevFrom),   fmt(prevTo),   ACCOUNT_FIELDS, allowedIds),
+    fetchPeriod(fmt(momFrom),    fmt(momTo),    ACCOUNT_FIELDS, allowedIds),
   ])
 
-  // Index prev by account_id
+  // Index prev and mom by account_id
   const prevMap = new Map<string, Metrics>()
   for (const r of prevRows) {
     if (r.account_id) prevMap.set(r.account_id, toMetrics(r))
+  }
+  const momMap = new Map<string, Metrics>()
+  for (const r of momRows) {
+    if (r.account_id) momMap.set(r.account_id, toMetrics(r))
   }
 
   const results: ClientAudit[] = []
@@ -393,20 +474,40 @@ export async function runAudit(
     const recent = toMetrics(r)
     if (recent.spend < 100) continue
 
-    const prev = prevMap.get(r.account_id) ?? null
-    const item = buildAuditItem(recent, prev)
+    const prev        = prevMap.get(r.account_id) ?? null
+    const clientName  = clientNames[r.account_id] ?? r.account_name ?? r.account_id
+    const clientType  = getClientType(clientName)
+    const item        = buildAuditItem(recent, prev, clientType)
+
+    // Month-over-month fields
+    const mom = momMap.get(r.account_id) ?? null
+    const mom_ctr = mom?.ctr ?? 0
+    const momEffective = mom
+      ? (clientType === 'messaging' ? mom.messaging : mom.results)
+      : 0
+    const mom_cpl = momEffective > 0 ? (mom!.spend / momEffective) : 0
+
+    const mom_ctr_change: number | null = mom_ctr > 0
+      ? ((recent.ctr - mom_ctr) / mom_ctr) * 100
+      : null
+    const mom_cpl_change: number | null = mom_cpl > 0 && item.cpl > 0
+      ? ((item.cpl - mom_cpl) / mom_cpl) * 100
+      : null
 
     total_spend   += recent.spend
     total_results += recent.results
 
     results.push({
-      account_id:   r.account_id,
-      client_name:  clientNames[r.account_id] ?? r.account_name ?? r.account_id,
+      account_id:  r.account_id,
+      client_name: clientName,
+      client_type: clientType,
+      mom_cpl, mom_ctr,
+      mom_cpl_change, mom_ctr_change,
       ...item,
     })
   }
 
-  results.sort((a, b) => a.score - b.score)
+  results.sort((a, b) => b.spend - a.spend)
 
   const auditResult: AuditData = {
     results,
@@ -418,6 +519,8 @@ export async function runAudit(
     date_to:    fmt(recentTo),
     prev_from:  fmt(prevFrom),
     prev_to:    fmt(prevTo),
+    mom_from:   fmt(momFrom),
+    mom_to:     fmt(momTo),
   }
   _auditCache.set(cacheKey, { data: auditResult, ts: Date.now() })
   return auditResult
@@ -427,7 +530,8 @@ export async function runAudit(
 
 export async function getCampaignBreakdown(
   accountId:  string,
-  clientName: string
+  clientName: string,
+  clientType: ClientType = 'ig'
 ): Promise<CampaignData> {
   const today   = new Date()
   const fmt     = (d: Date) => d.toISOString().split('T')[0]
@@ -459,7 +563,7 @@ export async function getCampaignBreakdown(
     if (recent.spend < 10) continue
 
     const prev = prevMap.get(r.campaign_id) ?? null
-    const item = buildAuditItem(recent, prev)
+    const item = buildAuditItem(recent, prev, clientType)
 
     campaigns.push({
       campaign_id: r.campaign_id,
@@ -471,7 +575,7 @@ export async function getCampaignBreakdown(
   campaigns.sort((a, b) => a.score - b.score)
 
   return {
-    campaigns, client_name: clientName,
+    campaigns, client_name: clientName, client_type: clientType,
     date_from: fmt(recentFrom),
     date_to:   fmt(recentTo),
   }
@@ -480,15 +584,18 @@ export async function getCampaignBreakdown(
 // ── Creative lifecycle tracker ───────────────────────────────────────────────
 
 interface RawAdRow extends RawRow {
-  ad_id?:         string | null
-  ad_name?:       string | null
-  adset_name?:    string | null
-  thumbnail_url?: string | null
+  ad_id?:                  string | null
+  ad_name?:                string | null
+  adset_name?:             string | null
+  thumbnail_url?:          string | null
+  ad_effective_status?:    string | null
+  adset_effective_status?: string | null
 }
 
 const CREATIVE_FIELDS = [
   'account_id', 'ad_id', 'ad_name', 'campaign', 'adset_name',
   'spend', 'impressions', 'link_clicks', 'thumbnail_url',
+  'ad_effective_status', 'adset_effective_status',
 ].join(',')
 
 export type Lifecycle = 'growth' | 'peak' | 'decline' | 'exhausted'
@@ -573,6 +680,9 @@ export async function getCreativeLifecycle(accountId: string): Promise<CreativeD
 
   for (const r of recentRows) {
     if (!r.ad_id) continue
+    // Skip paused ads or ads in paused adsets/campaigns
+    if (r.ad_effective_status    && r.ad_effective_status    !== 'ACTIVE') continue
+    if (r.adset_effective_status && r.adset_effective_status !== 'ACTIVE') continue
     const imp     = r.impressions ?? 0
     const lc      = r.link_clicks ?? 0
     const spend_w = r.spend       ?? 0

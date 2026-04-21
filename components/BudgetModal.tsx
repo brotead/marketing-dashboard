@@ -44,13 +44,13 @@ export default function BudgetModal({ campaign, existing, year, month, onSave, o
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 className="font-bold text-gray-900">Configurar presupuesto</h2>
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#2a2a2a]">
+          <h2 className="font-bold text-gray-100">Configurar presupuesto</h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition"
+            className="text-gray-500 hover:text-gray-300 p-1 rounded-lg hover:bg-[#252525] transition"
           >
             <X size={18} />
           </button>
@@ -58,18 +58,18 @@ export default function BudgetModal({ campaign, existing, year, month, onSave, o
 
         <form onSubmit={handleSubmit} className="p-6 flex flex-col gap-4">
           {/* Campaign info */}
-          <div className="bg-gray-50 rounded-xl p-3.5">
+          <div className="bg-[#252525] rounded-xl p-3.5">
             <p className="text-xs text-gray-400 mb-0.5">
               {campaign.source === 'google' ? 'Google Ads' : 'Meta Ads'} · ID: {campaign.campaign_id}
             </p>
-            <p className="font-medium text-gray-800 text-sm">
+            <p className="font-medium text-gray-200 text-sm">
               {campaign.campaign_name ?? 'Sin nombre en Windsor'}
             </p>
           </div>
 
           {/* Client name */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            <label className="block text-sm font-medium text-gray-300 mb-1.5">
               Cliente <span className="text-red-500">*</span>
             </label>
             <input
@@ -77,7 +77,7 @@ export default function BudgetModal({ campaign, existing, year, month, onSave, o
               value={clientName}
               onChange={(e) => setClientName(e.target.value)}
               placeholder="Ej: AMIPACK, HSF, MAFRALAC..."
-              className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full bg-[#1a1a1a] border border-[#333] rounded-xl px-4 py-2.5 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               required
             />
           </div>
@@ -85,7 +85,7 @@ export default function BudgetModal({ campaign, existing, year, month, onSave, o
           {/* Campaign name (only if null from Windsor) */}
           {!campaign.campaign_name && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              <label className="block text-sm font-medium text-gray-300 mb-1.5">
                 Nombre de campaña
               </label>
               <input
@@ -93,9 +93,9 @@ export default function BudgetModal({ campaign, existing, year, month, onSave, o
                 value={campaignName}
                 onChange={(e) => setCampaignName(e.target.value)}
                 placeholder="Nombre descriptivo para esta campaña"
-                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full bg-[#1a1a1a] border border-[#333] rounded-xl px-4 py-2.5 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               />
-              <p className="text-xs text-amber-600 mt-1">
+              <p className="text-xs text-amber-400 mt-1">
                 Esta campaña de Meta no tiene nombre en Windsor. Podés ingresarlo manualmente.
               </p>
             </div>
@@ -103,12 +103,12 @@ export default function BudgetModal({ campaign, existing, year, month, onSave, o
 
           {/* Budget */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            <label className="block text-sm font-medium text-gray-300 mb-1.5">
               Presupuesto mensual — {MONTHS[month - 1]} {year}{' '}
               <span className="text-red-500">*</span>
             </label>
             <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium">
                 $
               </span>
               <input
@@ -116,7 +116,7 @@ export default function BudgetModal({ campaign, existing, year, month, onSave, o
                 value={budgetTotal}
                 onChange={(e) => setBudgetTotal(e.target.value)}
                 placeholder="0"
-                className="w-full border border-gray-200 rounded-xl pl-8 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full bg-[#1a1a1a] border border-[#333] rounded-xl pl-8 pr-4 py-2.5 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                 required
                 min="0"
                 step="any"
@@ -128,7 +128,7 @@ export default function BudgetModal({ campaign, existing, year, month, onSave, o
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 border border-gray-200 rounded-xl py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition"
+              className="flex-1 border border-[#333] rounded-xl py-2.5 text-sm font-medium text-gray-400 hover:bg-[#252525] transition"
             >
               Cancelar
             </button>

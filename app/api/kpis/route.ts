@@ -11,7 +11,9 @@ export async function GET(req: NextRequest) {
       fetchConversationsByAccount(year, month),
       fetchIgFollowersCurrent(),
     ])
-    return NextResponse.json({ conversations, igFollowers, year, month })
+    return NextResponse.json({ conversations, igFollowers, year, month }, {
+      headers: { 'Cache-Control': 'private, max-age=300, stale-while-revalidate=600' },
+    })
   } catch (err) {
     console.error('[KPIs]', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })

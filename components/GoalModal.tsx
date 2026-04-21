@@ -46,15 +46,15 @@ export default function GoalModal({ existing, year, month, existingClients, onSa
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 className="font-bold text-gray-900">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#2a2a2a]">
+          <h2 className="font-bold text-gray-100">
             {existing ? 'Editar objetivo' : 'Nuevo objetivo'}
           </h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition"
+            className="text-gray-500 hover:text-gray-300 p-1 rounded-lg hover:bg-[#252525] transition"
           >
             <X size={18} />
           </button>
@@ -63,7 +63,7 @@ export default function GoalModal({ existing, year, month, existingClients, onSa
         <form onSubmit={handleSubmit} className="p-6 flex flex-col gap-4">
           {/* Client */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            <label className="block text-sm font-medium text-gray-300 mb-1.5">
               Cliente <span className="text-red-500">*</span>
             </label>
             <input
@@ -71,7 +71,7 @@ export default function GoalModal({ existing, year, month, existingClients, onSa
               value={clientName}
               onChange={(e) => setClientName(e.target.value)}
               placeholder="Nombre del cliente"
-              className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full bg-[#1a1a1a] border border-[#333] rounded-xl px-4 py-2.5 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               required
             />
             <datalist id="goal-clients">
@@ -81,15 +81,15 @@ export default function GoalModal({ existing, year, month, existingClients, onSa
 
           {/* KPI selector */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">KPI</label>
+            <label className="block text-sm font-medium text-gray-300 mb-2">KPI</label>
             <div className="flex flex-col gap-2">
               {KPI_OPTIONS.map((opt) => (
                 <label
                   key={opt.value}
                   className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition ${
                     kpi === opt.value
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300'
+                      ? 'border-blue-500 bg-blue-600/10'
+                      : 'border-[#333] hover:border-[#444]'
                   }`}
                 >
                   <input
@@ -101,7 +101,7 @@ export default function GoalModal({ existing, year, month, existingClients, onSa
                     className="mt-0.5"
                   />
                   <div>
-                    <p className="text-sm font-medium text-gray-900">{opt.label}</p>
+                    <p className="text-sm font-medium text-gray-100">{opt.label}</p>
                     <p className="text-xs text-gray-400">{opt.desc}</p>
                   </div>
                 </label>
@@ -111,7 +111,7 @@ export default function GoalModal({ existing, year, month, existingClients, onSa
 
           {/* Goal value */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            <label className="block text-sm font-medium text-gray-300 mb-1.5">
               Meta mensual — {MONTHS[month - 1]} {year} <span className="text-red-500">*</span>
             </label>
             <input
@@ -119,20 +119,20 @@ export default function GoalModal({ existing, year, month, existingClients, onSa
               value={goalValue}
               onChange={(e) => setGoalValue(e.target.value)}
               placeholder="Ej: 300"
-              className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full bg-[#1a1a1a] border border-[#333] rounded-xl px-4 py-2.5 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               required
               min="1"
             />
           </div>
 
           {kpi === 'conversiones' && (
-            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-700">
+            <div className="bg-blue-600/10 border border-blue-500/30 rounded-xl p-3 text-xs text-blue-400">
               Las conversiones se obtienen automáticamente desde Windsor cuando asignás un presupuesto a las campañas de este cliente.
             </div>
           )}
 
           {(kpi === 'mensajes' || kpi === 'seguidores') && (
-            <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-xs text-amber-700">
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-400">
               Este KPI requiere ingreso manual. Podés actualizarlo directamente desde la tarjeta del cliente.
             </div>
           )}
@@ -141,7 +141,7 @@ export default function GoalModal({ existing, year, month, existingClients, onSa
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 border border-gray-200 rounded-xl py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition"
+              className="flex-1 border border-[#333] rounded-xl py-2.5 text-sm font-medium text-gray-400 hover:bg-[#252525] transition"
             >
               Cancelar
             </button>

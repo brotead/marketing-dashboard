@@ -1,14 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { runAudit } from '@/lib/audit'
-import { createClient } from '@supabase/supabase-js'
+import { supabase as sb } from '@/lib/supabase'
 
 export async function GET(req: NextRequest) {
   const force = req.nextUrl.searchParams.get('force') === 'true'
   try {
-    const sb = createClient(
-      process.env.SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_KEY!
-    )
     const { data: budgets } = await sb
       .from('budgets')
       .select('account_id, client_name')
@@ -27,7 +23,10 @@ export async function GET(req: NextRequest) {
     }
 
     const data = await runAudit(allowedIds, clientNames, force)
-    return NextResponse.json(data)
+    const cc = force
+      ? 'no-store'
+      : 'private, max-age=180, stale-while-revalidate=600'
+    return NextResponse.json(data, { headers: { 'Cache-Control': cc } })
   } catch (err) {
     console.error('[Audit]', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })

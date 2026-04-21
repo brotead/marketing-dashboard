@@ -9,7 +9,9 @@ export async function GET(req: NextRequest) {
     }
 
     const data = await getCreativeLifecycle(accountId)
-    return NextResponse.json(data)
+    return NextResponse.json(data, {
+      headers: { 'Cache-Control': 'private, max-age=180, stale-while-revalidate=600' },
+    })
   } catch (err) {
     console.error('[Audit/Creatives]', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })
