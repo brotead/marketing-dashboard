@@ -9,7 +9,14 @@ export async function GET(req: NextRequest) {
 
   try {
     const { accounts, campaigns, adsets } = await fetchWindsorAccounts(year, month, force)
-    return NextResponse.json({ data: accounts, campaigns, adsets, year, month })
+    // Serve fresh data instantly on repeat navigation (server already caches 1hr)
+    const cc = force
+      ? 'no-store'
+      : 'private, max-age=300, stale-while-revalidate=600'
+    return NextResponse.json(
+      { data: accounts, campaigns, adsets, year, month },
+      { headers: { 'Cache-Control': cc } }
+    )
   } catch (err) {
     console.error('[Windsor]', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })

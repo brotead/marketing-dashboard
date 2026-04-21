@@ -50,7 +50,7 @@ async function fetchAccounts(
   // Show spend through yesterday to avoid partial-day figures.
   // On the 1st of the month yesterday is still in the previous month, so fall back to today.
   const dateTo = isCurrentMonth
-    ? (today.getDate() > 1 ? yesterday.toISOString().split('T')[0] : today.toISOString().split('T')[0])
+    ? yesterday.toISOString().split('T')[0]
     : new Date(year, month, 0).toISOString().split('T')[0]
 
   const sevenDaysAgo = new Date(today)

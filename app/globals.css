@@ -1,3 +1,43 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ── Base ─────────────────────────────────────────────── */
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* ── Scrollbars — dark mode ──────────────────────────── */
+.dark * {
+  scrollbar-width: thin;
+  scrollbar-color: #2a2a2a #111111;
+}
+.dark *::-webkit-scrollbar        { width: 5px; height: 5px; }
+.dark *::-webkit-scrollbar-track  { background: #111111; }
+.dark *::-webkit-scrollbar-thumb  { background-color: #2a2a2a; border-radius: 10px; }
+.dark *::-webkit-scrollbar-thumb:hover { background-color: #3a3a3a; }
+
+/* ── Scrollbars — light mode ─────────────────────────── */
+:root:not(.dark) * {
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db #f1f5f9;
+}
+:root:not(.dark) *::-webkit-scrollbar        { width: 5px; height: 5px; }
+:root:not(.dark) *::-webkit-scrollbar-track  { background: #f1f5f9; }
+:root:not(.dark) *::-webkit-scrollbar-thumb  { background-color: #d1d5db; border-radius: 10px; }
+:root:not(.dark) *::-webkit-scrollbar-thumb:hover { background-color: #9ca3af; }
+
+/* ── Tabular numbers ─────────────────────────────────── */
+.num,
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* ── Selection color ─────────────────────────────────── */
+::selection {
+  background: rgba(37, 99, 235, 0.25);
+  color: inherit;
+}

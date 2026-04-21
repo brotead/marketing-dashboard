@@ -13,7 +13,9 @@ export async function GET() {
     const allowedIds = new Set(currentMonth.map(b => b.account_id).filter(Boolean))
 
     const ads = await fetchFatigueAds(allowedIds)
-    return NextResponse.json({ ads, analyzed_at: new Date().toISOString() })
+    return NextResponse.json({ ads, analyzed_at: new Date().toISOString() }, {
+      headers: { 'Cache-Control': 'private, max-age=300, stale-while-revalidate=600' },
+    })
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
   }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCampaignBreakdown } from '@/lib/audit'
-import { createClient } from '@supabase/supabase-js'
+import { getCampaignBreakdown, getClientType } from '@/lib/audit'
+import { supabase as sb } from '@/lib/supabase'
 
 export async function GET(req: NextRequest) {
   try {
@@ -9,11 +9,6 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'account_id requerido' }, { status: 400 })
     }
 
-    // Get client_name from Supabase
-    const sb = createClient(
-      process.env.SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_KEY!
-    )
     const { data: budgets } = await sb
       .from('budgets')
       .select('client_name')
@@ -22,9 +17,12 @@ export async function GET(req: NextRequest) {
       .limit(1)
 
     const clientName = budgets?.[0]?.client_name ?? accountId
+    const clientType = getClientType(clientName)
 
-    const data = await getCampaignBreakdown(accountId, clientName)
-    return NextResponse.json(data)
+    const data = await getCampaignBreakdown(accountId, clientName, clientType)
+    return NextResponse.json(data, {
+      headers: { 'Cache-Control': 'private, max-age=180, stale-while-revalidate=600' },
+    })
   } catch (err) {
     console.error('[Audit/Campaigns]', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })

@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, Plus, Pencil, AlertTriangle, UserPlus, Clock } from 'lucide-react'
+import { RefreshCw, Plus, Pencil, AlertTriangle, UserPlus, Clock, Trash2 } from 'lucide-react'
 import CampaignRow from '@/components/CampaignRow'
-import CampaignFormModal from '@/components/CampaignFormModal'
-import ClientFormModal from '@/components/ClientFormModal'
+import dynamic from 'next/dynamic'
+const CampaignFormModal = dynamic(() => import('@/components/CampaignFormModal'), { ssr: false })
+const ClientFormModal   = dynamic(() => import('@/components/ClientFormModal'),   { ssr: false })
 import type { AccountData, BudgetEntry, CampaignSpend } from '@/lib/types'
 import { calcCashflow } from '@/lib/calculations'
 
@@ -45,6 +46,63 @@ function normName(s: string): string {
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[|\-_]+/g, ' ')
     .replace(/\s+/g, ' ').trim()
+}
+
+function fuzzyMatch(a: string, b: string): boolean {
+  const na = normName(a), nb = normName(b)
+  return na === nb || na.includes(nb) || nb.includes(na)
+}
+
+async function resolvePendingClients(
+  budgets: BudgetEntry[],
+  wAccounts: AccountData[],
+  wCampaigns: CampaignSpend[],
+  year: number,
+  month: number
+): Promise<{ added: BudgetEntry[]; removedIds: string[] }> {
+  const pending = budgets.filter(
+    b => b.year === year && b.month === month && b.account_id === '__pending__'
+  )
+  if (pending.length === 0) return { added: [], removedIds: [] }
+
+  const toAdd: BudgetEntry[] = []
+  const removedIds: string[] = []
+
+  for (const p of pending) {
+    const source = p.source
+    const match  = wAccounts.find(a => a.source === source && fuzzyMatch(p.client_name, a.account_name))
+    if (!match) continue
+
+    removedIds.push(p.campaign_id)
+
+    const campaigns = wCampaigns.filter(
+      wc => wc.account_id === match.account_id && wc.source === source
+    )
+    const suffix = source === 'facebook' ? 'fb' : 'gg'
+    for (let i = 0; i < campaigns.length; i++) {
+      toAdd.push({
+        campaign_id:   `auto_${suffix}_${match.account_id.slice(-5)}_${Date.now()}_${toAdd.length}`,
+        campaign_name: campaigns[i].campaign_name,
+        client_name:   p.client_name,
+        source,
+        account_id:    match.account_id,
+        year, month,
+        budget_total:  0,
+        paused:        false,
+      })
+    }
+  }
+
+  await Promise.all([
+    ...toAdd.map(e => fetch('/api/budgets', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(e),
+    })),
+    ...removedIds.map(id => fetch('/api/budgets', {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ campaign_id: id, year, month }),
+    })),
+  ])
+  return { added: toAdd, removedIds }
 }
 
 // Deduplicate budget entries by normalized campaign name within the same account+source.
@@ -131,36 +189,28 @@ function campaignSpend(
 }
 
 // ── Full Windsor sync ────────────────────────────────────────────────────────────
-// Runs every hour. Compares Windsor campaigns (+ adsets) against app entries and:
-//   ADDS    new active campaigns not yet in the app
-//   PAUSES  entries whose Windsor campaign had no spend on the last day of data
-//   UNPAUSES entries whose Windsor campaign resumed spending
-//   DELETES auto-added entries that are redundant (same Windsor campaign already
-//           represented by a real/manual entry, e.g. campaign-level vs adset-level)
 async function autoSyncCampaigns(
   windsorCampaigns: CampaignSpend[],
   windsorAdsets: CampaignSpend[],
   allBudgets: BudgetEntry[],
   year: number,
   month: number,
-  onDone: (added: BudgetEntry[], updated: BudgetEntry[], deleted: string[]) => void
+  onDone: (added: BudgetEntry[], updated: BudgetEntry[], deleted: string[]) => void,
 ) {
   const monthBudgets = allBudgets.filter(b => b.year === year && b.month === month)
 
-  // account → client map (only accounts already tracked in the app)
   const accountToClient = new Map<string, { client: string; source: string }>()
   for (const b of monthBudgets) {
+    if (b.account_id === '__pending__') continue
     accountToClient.set(`${b.account_id}|${b.source}`, { client: b.client_name, source: b.source })
   }
 
-  // Index Windsor campaigns: "account_id|source|normName" → CampaignSpend
   const wcIndex = new Map<string, CampaignSpend>()
   for (const wc of windsorCampaigns) {
     if (!wc.account_id) continue
     wcIndex.set(`${wc.account_id}|${wc.source}|${normName(wc.campaign_name)}`, wc)
   }
 
-  // Index Windsor adsets → their parent CampaignSpend: "account_id|source|normAdsetName" → parent
   const waIndex = new Map<string, CampaignSpend>()
   for (const wa of windsorAdsets) {
     if (!wa.account_id || !wa.adset_name) continue
@@ -170,23 +220,18 @@ async function autoSyncCampaigns(
     waIndex.set(`${wa.account_id}|${wa.source}|${normName(wa.adset_name)}`, parent)
   }
 
-  // Find the Windsor CampaignSpend that best matches a budget entry (campaign OR adset name)
   function findMatch(b: BudgetEntry): CampaignSpend | undefined {
     const as   = `${b.account_id}|${b.source}`
     const bNorm = normName(b.campaign_name)
-    // Exact campaign name
     const ce = wcIndex.get(`${as}|${bNorm}`)
     if (ce) return ce
-    // Fuzzy campaign name
     for (const [k, wc] of wcIndex) {
       if (!k.startsWith(as + '|')) continue
       const wcN = k.slice(as.length + 1)
       if (wcN.includes(bNorm) || bNorm.includes(wcN)) return wc
     }
-    // Exact adset name
     const ae = waIndex.get(`${as}|${bNorm}`)
     if (ae) return ae
-    // Fuzzy adset name
     for (const [k, wc] of waIndex) {
       if (!k.startsWith(as + '|')) continue
       const waN = k.slice(as.length + 1)
@@ -195,16 +240,12 @@ async function autoSyncCampaigns(
     return undefined
   }
 
-  // ── Phase 1: map every existing entry to its Windsor campaign ─────────────────
   const entryToWc = new Map<string, CampaignSpend>()
   for (const b of monthBudgets) {
     const wc = findMatch(b)
     if (wc) entryToWc.set(b.campaign_id, wc)
   }
 
-  // ── Phase 2: resolve conflicts ────────────────────────────────────────────────
-  // If multiple entries point to the same Windsor campaign, delete auto-adds that
-  // have no budget set (they're redundant campaign-level duplicates of adset entries).
   const wcToEntries = new Map<string, BudgetEntry[]>()
   for (const b of monthBudgets) {
     const wc = entryToWc.get(b.campaign_id)
@@ -222,19 +263,11 @@ async function autoSyncCampaigns(
     if (realEntries.length > 0) autoZero.forEach(b => deleteSet.add(b.campaign_id))
   }
 
-  // ── Phase 3: sync paused/active status ───────────────────────────────────────
   const toUpdate: BudgetEntry[] = []
   for (const b of monthBudgets) {
     if (deleteSet.has(b.campaign_id)) continue
-    const wc = entryToWc.get(b.campaign_id)
-    if (!wc) continue  // no Windsor data at all — leave user's setting intact
-    const activeInWindsor = (wc.today_spend ?? 0) > 0
-    if (activeInWindsor && b.paused)  toUpdate.push({ ...b, paused: false })
-    if (!activeInWindsor && !b.paused) toUpdate.push({ ...b, paused: true })
   }
 
-  // ── Phase 4: add new active campaigns ────────────────────────────────────────
-  // Build the set of Windsor campaign keys already represented by surviving entries
   const matchedKeys = new Set<string>()
   for (const b of monthBudgets) {
     if (deleteSet.has(b.campaign_id)) continue
@@ -242,32 +275,27 @@ async function autoSyncCampaigns(
     if (wc) matchedKeys.add(`${wc.account_id}|${wc.source}|${normName(wc.campaign_name)}`)
   }
 
-  // Group unmatched Windsor campaigns (active today) by account
   const unmatchedWcByAcct = new Map<string, CampaignSpend[]>()
   const addSeen = new Set<string>()
   for (const wc of windsorCampaigns) {
-    if (!wc.account_id || (wc.today_spend ?? 0) <= 0) continue
+    if (!wc.account_id || wc.spend <= 0) continue
     const wcKey = `${wc.account_id}|${wc.source}|${normName(wc.campaign_name)}`
     if (matchedKeys.has(wcKey) || addSeen.has(wcKey)) continue
-    if (!accountToClient.has(`${wc.account_id}|${wc.source}`)) continue
-    addSeen.add(wcKey)
     const acctKey = `${wc.account_id}|${wc.source}`
+    if (!accountToClient.has(acctKey)) continue
+    addSeen.add(wcKey)
     if (!unmatchedWcByAcct.has(acctKey)) unmatchedWcByAcct.set(acctKey, [])
     unmatchedWcByAcct.get(acctKey)!.push(wc)
   }
 
   const toAdd: BudgetEntry[] = []
   for (const [acctKey, unmatchedWc] of unmatchedWcByAcct) {
-    // Count surviving active Supabase entries that ALSO have no Windsor match (name mismatch)
-    // These are existing campaigns that are already set up but Windsor uses different names.
-    // We only add the EXCESS — campaigns beyond what existing entries already cover.
     const [acctId, acctSource] = acctKey.split('|')
     const unmatchedExistingCount = monthBudgets.filter(b =>
       b.account_id === acctId && b.source === acctSource &&
       !b.paused && !deleteSet.has(b.campaign_id) && !entryToWc.has(b.campaign_id)
     ).length
 
-    // Sort by spend descending so we prefer the highest-spending genuinely new campaigns
     const sorted = [...unmatchedWc].sort((a, b) => (b.today_spend ?? 0) - (a.today_spend ?? 0))
     const numToAdd = Math.max(0, sorted.length - unmatchedExistingCount)
     const mapping = accountToClient.get(acctKey)!
@@ -288,7 +316,6 @@ async function autoSyncCampaigns(
     }
   }
 
-  // ── Execute all changes ───────────────────────────────────────────────────────
   const toDelete = Array.from(deleteSet)
   const promises: Promise<unknown>[] = [
     ...[...toAdd, ...toUpdate].map(e => fetch('/api/budgets', {
@@ -303,6 +330,89 @@ async function autoSyncCampaigns(
   onDone(toAdd, toUpdate, toDelete)
 }
 
+function PendingClientPanel({ client, source, windsorCampaigns, year, month, onResolved }: {
+  client: string
+  source: Source
+  windsorCampaigns: CampaignSpend[]
+  year: number
+  month: number
+  onResolved: (entries: BudgetEntry[]) => void
+}) {
+  const [accountId, setAccountId] = useState('')
+  const [error,     setError]     = useState('')
+  const [loading,   setLoading]   = useState(false)
+
+  async function resolve() {
+    const id = accountId.trim()
+    if (!id) { setError('Ingresá el Account ID'); return }
+
+    // Try existing in-memory data first
+    let campaigns = windsorCampaigns.filter(wc => wc.account_id === id && wc.source === source)
+
+    // If not found, fetch fresh from Windsor (account may have no spend this month yet)
+    if (campaigns.length === 0) {
+      setLoading(true)
+      try {
+        const res  = await fetch(`/api/windsor?year=${year}&month=${month}&force=true`)
+        const json = await res.json()
+        const fresh: CampaignSpend[] = json.campaigns ?? []
+        campaigns = fresh.filter(wc => wc.account_id === id && wc.source === source)
+      } catch { /* ignore */ } finally {
+        setLoading(false)
+      }
+    }
+
+    if (campaigns.length === 0) {
+      setError('No se encontraron campañas para ese Account ID. Verificá que el ID sea correcto y que la cuenta esté activa en Windsor.')
+      return
+    }
+
+    const suffix = source === 'facebook' ? 'fb' : 'gg'
+    const ts = Date.now()
+    onResolved(campaigns.map((wc, i) => ({
+      campaign_id:   `auto_${suffix}_${id.slice(-5)}_${ts}_${i}`,
+      campaign_name: wc.campaign_name,
+      client_name:   client,
+      source,
+      account_id:    id,
+      year, month,
+      budget_total:  0,
+      paused:        false,
+    })))
+  }
+
+  const platformLabel = source === 'facebook' ? 'Meta Ads' : 'Google Ads'
+  const placeholder   = source === 'facebook' ? 'Ej: 606042859735' : 'Ej: 959-198-0482'
+
+  return (
+    <div className="border border-dashed border-orange-300 dark:border-orange-500/30 rounded-2xl bg-orange-50 dark:bg-orange-500/5 p-8">
+      <p className="text-sm font-semibold text-orange-600 dark:text-orange-400 mb-1">No se encontró la cuenta en Windsor automáticamente</p>
+      <p className="text-xs text-orange-500/70 dark:text-orange-400/60 mb-5">
+        El nombre "{client}" no coincidió con ninguna cuenta de {platformLabel} en Windsor. Ingresá el Account ID para cargar las campañas.
+      </p>
+      <div className="flex gap-2 max-w-sm">
+        <input
+          value={accountId}
+          onChange={e => { setAccountId(e.target.value); setError('') }}
+          onKeyDown={e => { if (e.key === 'Enter') resolve() }}
+          placeholder={placeholder}
+          className="flex-1 px-3 py-2 text-sm bg-white dark:bg-[#1a1a1a] border border-orange-300 dark:border-orange-500/40 rounded-xl text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400/30 focus:border-orange-400 font-mono"
+          autoFocus
+        />
+        <button
+          onClick={resolve}
+          disabled={loading}
+          className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold rounded-xl transition disabled:opacity-60 flex items-center gap-2"
+        >
+          {loading && <RefreshCw size={13} className="animate-spin" />}
+          {loading ? 'Buscando...' : 'Cargar'}
+        </button>
+      </div>
+      {error && <p className="text-xs text-rose-500 mt-2">{error}</p>}
+    </div>
+  )
+}
+
 export default function CashflowPage() {
   const today = new Date()
   const [year, setYear] = useState(today.getFullYear())
@@ -315,10 +425,10 @@ export default function CashflowPage() {
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<Selection | null>(null)
   const [modal, setModal] = useState<ModalState | null>(null)
-  const [clientModal, setClientModal] = useState<Source | null>(null)
+  const [clientModal, setClientModal] = useState(false)
   const [editingTotal, setEditingTotal] = useState(false)
   const [totalInput, setTotalInput] = useState('')
-  const [countdown, setCountdown] = useState(3600)
+  const [countdown, setCountdown] = useState(300)
 
   const fetchData = useCallback(async (force = false) => {
     setLoading(true)
@@ -340,7 +450,6 @@ export default function CashflowPage() {
       setWindsorAdsets(wAdsets)
       setBudgets(bs)
 
-      // Auto-select from URL param (on first load) or default to first Meta client
       if (!selected) {
         const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '')
         const preClient = params.get('client')
@@ -354,7 +463,6 @@ export default function CashflowPage() {
         }
       }
 
-      // Full Windsor sync: adds new, pauses inactive, unpauses resumed, removes redundant duplicates
       await autoSyncCampaigns(wCampaigns, wAdsets, bs, year, month, (added, updated, deleted) => {
         setBudgets(prev => {
           let next = [...prev, ...added]
@@ -373,26 +481,62 @@ export default function CashflowPage() {
     }
   }, [year, month]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const syncCampaigns = useCallback(async () => {
+    try {
+      const [windsorRes, budgetRes] = await Promise.all([
+        fetch(`/api/windsor?year=${year}&month=${month}&force=true`),
+        fetch('/api/budgets'),
+      ])
+      if (!windsorRes.ok) return
+      const windsorJson  = await windsorRes.json()
+      const bs: BudgetEntry[]           = await budgetRes.json()
+      const wAccounts:  AccountData[]   = windsorJson.data      ?? []
+      const wCampaigns: CampaignSpend[] = windsorJson.campaigns ?? []
+      const wAdsets:    CampaignSpend[] = windsorJson.adsets    ?? []
+
+      // Step 1: resolve pending clients (added by name only) → find Windsor account by fuzzy name
+      const { added: resolved, removedIds } = await resolvePendingClients(bs, wAccounts, wCampaigns, year, month)
+      if (resolved.length > 0 || removedIds.length > 0) {
+        setBudgets(prev => [
+          ...prev.filter(b => !removedIds.includes(b.campaign_id)),
+          ...resolved,
+        ])
+      }
+
+      // Step 2: sync new/deleted campaigns for all known accounts
+      const allBudgets = [...bs.filter(b => !removedIds.includes(b.campaign_id)), ...resolved]
+      await autoSyncCampaigns(wCampaigns, wAdsets, allBudgets, year, month, (added, updated, deleted) => {
+        setBudgets(prev => {
+          let next = [...prev, ...added]
+          for (const u of updated) {
+            const idx = next.findIndex(b => b.campaign_id === u.campaign_id && b.year === u.year && b.month === u.month)
+            if (idx >= 0) next[idx] = u
+          }
+          next = next.filter(b => !(deleted.includes(b.campaign_id) && b.year === year && b.month === month))
+          return next
+        })
+      }, wAccounts)
+    } catch { /* silent */ }
+  }, [year, month])
+
   useEffect(() => { fetchData() }, [fetchData])
 
-  // Countdown timer: ticks every second, triggers forced sync when it reaches 0
   useEffect(() => {
     const id = setInterval(() => {
       setCountdown(prev => {
         if (prev <= 1) {
-          fetchData(true)
-          return 3600
+          syncCampaigns()
+          return 300
         }
         return prev - 1
       })
     }, 1000)
     return () => clearInterval(id)
-  }, [fetchData])
+  }, [syncCampaigns])
 
   const monthBudgets = budgets.filter((b) => b.year === year && b.month === month)
 
   const daysInMonth = new Date(year, month, 0).getDate()
-  // Data from Windsor is through yesterday — align pacing to match
   const daysPassed =
     year === today.getFullYear() && month === today.getMonth() + 1
       ? Math.max(1, today.getDate() - 1)
@@ -414,9 +558,15 @@ export default function CashflowPage() {
     })
   }
 
+  function isPendingClient(clientName: string, source: Source): boolean {
+    const cb = monthBudgets.filter(b => b.client_name === clientName && b.source === source)
+    return cb.length > 0 && cb.every(b => b.account_id === '__pending__')
+  }
+
   function clientDotColor(clientName: string, source: Source): string {
+    if (isPendingClient(clientName, source)) return 'bg-orange-400'
     const cb = monthBudgets.filter((b) => b.client_name === clientName && b.source === source && !b.paused)
-    if (cb.length === 0) return 'bg-gray-300'
+    if (cb.length === 0) return 'bg-gray-600'
     const totalBudget = cb.reduce((s, b) => s + b.budget_total, 0)
     const totalSpend = cb.reduce((s, b) => s + campaignSpend(b, monthBudgets, accounts, windsorCampaigns, windsorAdsets), 0)
     const pct = totalBudget > 0 ? (totalSpend / totalBudget) * 100 : 0
@@ -425,12 +575,11 @@ export default function CashflowPage() {
     return 'bg-amber-400'
   }
 
-  // Selected client's campaigns — deduplicated by normalized name to prevent double rows
   const clientBudgets = selected
     ? deduplicateBudgets(monthBudgets.filter((b) => b.client_name === selected.client && b.source === selected.source))
     : []
-  const activeBudgets = clientBudgets.filter((b) => !b.paused)
-  const pausedBudgets = clientBudgets.filter((b) => b.paused)
+  const activeBudgets = clientBudgets.filter((b) => !b.paused && b.campaign_name !== '__auto__')
+  const pausedBudgets = clientBudgets.filter((b) => b.paused && b.campaign_name !== '__auto__')
 
   const clientSummary = activeBudgets.reduce(
     (acc, b) => {
@@ -463,7 +612,55 @@ export default function CashflowPage() {
       return [...prev, entry]
     })
     setModal(null)
-    setClientModal(null)
+    setClientModal(false)
+  }
+
+  const handleSaveClient = async (rawName: string) => {
+    const name = rawName.toUpperCase()
+    const ts   = Date.now()
+    const toSave: BudgetEntry[] = []
+
+    for (const source of ['facebook', 'google'] as Source[]) {
+      const match = accounts.find(a => a.source === source && fuzzyMatch(name, a.account_name))
+      if (match) {
+        const campaigns = windsorCampaigns.filter(
+          wc => wc.account_id === match.account_id && wc.source === source && wc.spend > 0
+        )
+        const suffix = source === 'facebook' ? 'fb' : 'gg'
+        campaigns.forEach((wc, i) => toSave.push({
+          campaign_id:   `auto_${suffix}_${match.account_id.slice(-5)}_${ts}_${i}`,
+          campaign_name: wc.campaign_name,
+          client_name:   name,
+          source,
+          account_id:    match.account_id,
+          year, month,
+          budget_total:  0,
+          paused:        false,
+        }))
+      } else {
+        // fallback: save as pending, 5-min sync will retry
+        toSave.push({
+          campaign_id:   `pending_${source}_${ts}`,
+          campaign_name: '__auto__',
+          client_name:   name,
+          source,
+          account_id:    '__pending__',
+          year, month,
+          budget_total:  0,
+          paused:        true,
+        })
+      }
+    }
+
+    await Promise.all(toSave.map(e => fetch('/api/budgets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(e),
+    })))
+    setBudgets(prev => [...prev, ...toSave])
+    setClientModal(false)
+    const first = toSave.find(e => e.account_id !== '__pending__')
+    if (first) setSelected({ client: first.client_name, source: first.source as Source })
   }
 
   const handleDelete = async (campaignId: string) => {
@@ -475,6 +672,17 @@ export default function CashflowPage() {
     setBudgets((prev) =>
       prev.filter((b) => !(b.campaign_id === campaignId && b.year === year && b.month === month))
     )
+  }
+
+  const deleteClient = async (clientName: string, source: Source) => {
+    const toDelete = monthBudgets.filter(b => b.client_name === clientName && b.source === source)
+    await Promise.all(toDelete.map(b => fetch('/api/budgets', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ campaign_id: b.campaign_id, year, month }),
+    })))
+    setBudgets(prev => prev.filter(b => !(b.client_name === clientName && b.source === source && b.year === year && b.month === month)))
+    if (selected?.client === clientName && selected?.source === source) setSelected(null)
   }
 
   const handlePause = async (entry: BudgetEntry) => {
@@ -535,21 +743,33 @@ export default function CashflowPage() {
         {clients.map((client) => {
           const isSelected = selected?.client === client && selected?.source === source
           const campaigns  = monthBudgets.filter(e => e.client_name === client && e.source === source)
-          const allPaused  = campaigns.length > 0 && campaigns.every(e => e.paused)
+          const pending    = campaigns.length > 0 && campaigns.every(e => e.account_id === '__pending__')
+          const allPaused  = !pending && campaigns.length > 0 && campaigns.every(e => e.paused)
           return (
-            <button
-              key={client}
-              onClick={() => { setSelected({ client, source }); setEditingTotal(false) }}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-left transition ${
-                isSelected ? `${color} text-white font-semibold` : allPaused ? 'text-gray-400 hover:bg-gray-50' : 'text-gray-700 hover:bg-gray-100'
-              }`}
-            >
-              <span className={`w-2 h-2 rounded-full shrink-0 ${isSelected ? 'bg-white/60' : clientDotColor(client, source)}`} />
-              <span className="flex-1 truncate">{client}</span>
-              {allPaused && !isSelected && (
-                <span className="text-[9px] font-semibold text-gray-400 bg-gray-100 px-1 py-0.5 rounded shrink-0">PAUSA</span>
-              )}
-            </button>
+            <div key={client} className="group/row relative">
+              <button
+                onClick={() => { setSelected({ client, source }); setEditingTotal(false) }}
+                className={`w-full flex items-center gap-2.5 pl-3 pr-7 py-2 rounded-lg text-sm text-left transition ${
+                  isSelected ? `${color} text-white font-semibold` : allPaused ? 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-[#252525]' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-[#252525]'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full shrink-0 ${isSelected ? 'bg-white/60' : clientDotColor(client, source)}`} />
+                <span className="flex-1 truncate">{client}</span>
+                {pending && !isSelected && (
+                  <span className="text-[9px] font-semibold text-orange-500 bg-orange-500/10 px-1.5 py-0.5 rounded shrink-0">PENDIENTE</span>
+                )}
+                {allPaused && !isSelected && (
+                  <span className="text-[9px] font-semibold text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-[#2a2a2a] px-1 py-0.5 rounded shrink-0">PAUSA</span>
+                )}
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); deleteClient(client, source) }}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/row:opacity-100 text-gray-400 hover:text-rose-500 hover:bg-rose-500/10 transition-all"
+                title="Eliminar cliente"
+              >
+                <Trash2 size={11} />
+              </button>
+            </div>
           )
         })}
       </div>
@@ -562,36 +782,36 @@ export default function CashflowPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Control de Cashflow</h1>
-          <p className="text-gray-500 text-sm mt-0.5">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Control de Cashflow</h1>
+          <p className="text-gray-500 text-sm mt-1.5">
             Día {daysPassed} de {daysInMonth} · Consumo ideal: {pctExpected.toFixed(0)}% · {MONTHS[month - 1]} {year}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <select
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
+            className="border border-gray-200 dark:border-white/[0.08] rounded-xl px-3 py-2.5 text-sm bg-white dark:bg-[#161616] text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all duration-150 cursor-pointer shadow-sm dark:shadow-none"
             value={month}
             onChange={(e) => { setMonth(Number(e.target.value)); setSelected(null) }}
           >
             {MONTHS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
           </select>
           <select
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
+            className="border border-gray-200 dark:border-white/[0.08] rounded-xl px-3 py-2.5 text-sm bg-white dark:bg-[#161616] text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all duration-150 cursor-pointer shadow-sm dark:shadow-none"
             value={year}
             onChange={(e) => { setYear(Number(e.target.value)); setSelected(null) }}
           >
             {[2025, 2026, 2027].map((y) => <option key={y}>{y}</option>)}
           </select>
-          <div className="flex items-center gap-1.5 text-xs text-gray-400 border border-gray-200 rounded-lg px-3 py-2 bg-white font-mono" title="Próxima sincronización automática">
+          <div className="flex items-center gap-1.5 text-xs text-gray-500 border border-gray-200 dark:border-white/[0.08] rounded-xl px-3 py-2.5 bg-white dark:bg-[#161616] font-mono tabular-nums shadow-sm dark:shadow-none" title="Próxima sincronización automática">
             <Clock size={12} className="shrink-0" />
             {formatCountdown(countdown)}
           </div>
           <button
-            onClick={() => { fetchData(true); setCountdown(3600) }}
+            onClick={() => { fetchData(true); setCountdown(300) }}
             disabled={loading}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition disabled:opacity-60"
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 shadow-sm disabled:opacity-50"
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
             Sincronizar
@@ -600,7 +820,7 @@ export default function CashflowPage() {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 mb-4 text-sm">{error}</div>
+        <div className="bg-red-50 dark:bg-red-500/15 border border-red-200 dark:border-red-500/30 text-red-600 dark:text-red-400 rounded-xl p-3 mb-4 text-sm">{error}</div>
       )}
 
       <div className="flex gap-5">
@@ -609,7 +829,7 @@ export default function CashflowPage() {
 
           {loading ? (
             <div className="space-y-1.5">
-              {[1,2,3,4,5,6].map((i) => <div key={i} className="h-9 bg-gray-100 rounded-lg animate-pulse" />)}
+              {[1,2,3,4,5,6].map((i) => <div key={i} className="h-9 bg-gray-100 dark:bg-[#252525] rounded-lg animate-pulse" />)}
             </div>
           ) : (
             <>
@@ -621,8 +841,8 @@ export default function CashflowPage() {
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Meta Ads</p>
                   </div>
                   <button
-                    onClick={() => setClientModal('facebook')}
-                    className="text-gray-400 hover:text-blue-500 transition"
+                    onClick={() => setClientModal(true)}
+                    className="text-gray-500 hover:text-blue-400 transition"
                     title="Agregar cliente Meta"
                   >
                     <UserPlus size={13} />
@@ -630,12 +850,12 @@ export default function CashflowPage() {
                 </div>
                 {metaClients.length > 0
                   ? <ClientList source="facebook" clients={metaClients} color="bg-[#1877F2]" />
-                  : <p className="text-xs text-gray-400 px-3">Sin clientes</p>
+                  : <p className="text-xs text-gray-500 px-3">Sin clientes</p>
                 }
               </div>
 
               {/* Divider */}
-              <div className="border-t border-gray-100" />
+              <div className="border-t border-gray-200 dark:border-[#2a2a2a]" />
 
               {/* Google Ads section */}
               <div>
@@ -645,8 +865,8 @@ export default function CashflowPage() {
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Google Ads</p>
                   </div>
                   <button
-                    onClick={() => setClientModal('google')}
-                    className="text-gray-400 hover:text-blue-500 transition"
+                    onClick={() => setClientModal(true)}
+                    className="text-gray-500 hover:text-blue-400 transition"
                     title="Agregar cliente Google"
                   >
                     <UserPlus size={13} />
@@ -654,7 +874,7 @@ export default function CashflowPage() {
                 </div>
                 {googleClients.length > 0
                   ? <ClientList source="google" clients={googleClients} color="bg-[#4285F4]" />
-                  : <p className="text-xs text-gray-400 px-3">Sin clientes</p>
+                  : <p className="text-xs text-gray-500 px-3">Sin clientes</p>
                 }
               </div>
             </>
@@ -665,20 +885,40 @@ export default function CashflowPage() {
         <div className="flex-1 min-w-0">
           {loading && (
             <div className="space-y-3">
-              {[1,2,3].map((i) => <div key={i} className="h-20 bg-white rounded-xl border border-gray-100 animate-pulse" />)}
+              {[1,2,3].map((i) => <div key={i} className="h-20 bg-gray-100 dark:bg-[#1a1a1a] rounded-xl border border-gray-200 dark:border-[#2a2a2a] animate-pulse" />)}
             </div>
           )}
 
-          {!loading && selected && (
+          {!loading && selected && isPendingClient(selected.client, selected.source) && (
+            <PendingClientPanel
+              client={selected.client}
+              source={selected.source}
+              windsorCampaigns={windsorCampaigns}
+              year={year}
+              month={month}
+              onResolved={(entries) => {
+                const pendingIds = monthBudgets
+                  .filter(b => b.client_name === selected.client && b.source === selected.source && b.account_id === '__pending__')
+                  .map(b => b.campaign_id)
+                Promise.all([
+                  ...entries.map(e => fetch('/api/budgets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(e) })),
+                  ...pendingIds.map(id => fetch('/api/budgets', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ campaign_id: id, year, month }) })),
+                ])
+                setBudgets(prev => [...prev.filter(b => !pendingIds.includes(b.campaign_id)), ...entries])
+              }}
+            />
+          )}
+
+          {!loading && selected && !isPendingClient(selected.client, selected.source) && (
             <>
               {isOverspending && (
-                <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-2.5 mb-4 text-sm">
+                <div className="flex items-center gap-2 bg-red-500/15 border border-red-500/30 text-red-400 rounded-xl px-4 py-2.5 mb-4 text-sm">
                   <AlertTriangle size={15} className="shrink-0" />
                   <span><strong>¡Atención!</strong> El gasto ya superó el presupuesto total del mes.</span>
                 </div>
               )}
               {!isOverspending && projectionExceeds && (
-                <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-700 rounded-xl px-4 py-2.5 mb-4 text-sm">
+                <div className="flex items-center gap-2 bg-amber-500/15 border border-amber-500/30 text-amber-400 rounded-xl px-4 py-2.5 mb-4 text-sm">
                   <AlertTriangle size={15} className="shrink-0" />
                   <span>Al ritmo actual, la proyección al cierre es <strong>{currency(projectedEOM)}</strong> — podría superar el presupuesto.</span>
                 </div>
@@ -686,9 +926,9 @@ export default function CashflowPage() {
 
               {/* Summary cards */}
               {activeBudgets.length > 0 && (
-                <div className="grid grid-cols-4 gap-3 mb-5">
-                  <div className="bg-white rounded-xl border border-gray-100 px-4 py-3">
-                    <p className="text-xs text-gray-400 mb-0.5">Presupuesto total</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+                  <div className="bg-white dark:bg-[#111111] rounded-2xl border border-gray-100 dark:border-white/[0.06] px-5 py-4 shadow-sm">
+                    <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Presupuesto total</p>
                     {editingTotal ? (
                       <div className="flex items-center gap-1 mt-0.5">
                         <input
@@ -697,41 +937,41 @@ export default function CashflowPage() {
                           value={totalInput}
                           onChange={(e) => setTotalInput(e.target.value)}
                           onKeyDown={(e) => { if (e.key === 'Enter') handleTotalSave(); if (e.key === 'Escape') setEditingTotal(false) }}
-                          className="w-full text-sm font-bold border border-blue-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                          className="w-full text-sm font-bold bg-gray-50 dark:bg-[#252525] border border-blue-500/60 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-gray-900 dark:text-gray-100 tabular-nums"
                         />
-                        <button onClick={handleTotalSave} className="text-blue-600 text-xs font-semibold hover:text-blue-700 shrink-0">OK</button>
+                        <button onClick={handleTotalSave} className="text-blue-400 text-xs font-semibold hover:text-blue-300 shrink-0">OK</button>
                       </div>
                     ) : (
                       <div className="flex items-center gap-1.5">
-                        <p className="text-base font-bold text-gray-900">{currency(clientSummary.budget)}</p>
+                        <p className="text-xl font-bold text-gray-900 dark:text-white tabular-nums tracking-tight">{currency(clientSummary.budget)}</p>
                         <button
                           onClick={() => { setTotalInput(String(clientSummary.budget)); setEditingTotal(true) }}
-                          className="text-gray-300 hover:text-gray-500 transition"
+                          className="text-gray-600 hover:text-gray-400 transition mt-0.5"
                           title="Editar presupuesto total"
                         >
-                          <Pencil size={12} />
+                          <Pencil size={11} />
                         </button>
                       </div>
                     )}
                   </div>
-                  <div className="bg-white rounded-xl border border-gray-100 px-4 py-3">
-                    <p className="text-xs text-gray-400 mb-0.5">Gasto acumulado</p>
-                    <p className="text-base font-bold text-gray-900">{currency(clientSummary.spend)}</p>
+                  <div className="bg-white dark:bg-[#111111] rounded-2xl border border-gray-100 dark:border-white/[0.06] px-5 py-4 shadow-sm">
+                    <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Gasto acumulado</p>
+                    <p className="text-xl font-bold text-gray-900 dark:text-white tabular-nums tracking-tight">{currency(clientSummary.spend)}</p>
                     {clientSummary.budget > 0 && (
-                      <p className="text-xs text-gray-400">{((clientSummary.spend / clientSummary.budget) * 100).toFixed(1)}% del total</p>
+                      <p className="text-xs text-gray-500 mt-1.5 tabular-nums">{((clientSummary.spend / clientSummary.budget) * 100).toFixed(1)}% del total</p>
                     )}
                   </div>
-                  <div className="bg-white rounded-xl border border-gray-100 px-4 py-3">
-                    <p className="text-xs text-gray-400 mb-0.5">Ritmo actual</p>
-                    <p className="text-base font-bold text-gray-900">{currency(currentDailyRate)}<span className="text-xs font-normal text-gray-400">/día</span></p>
-                    <p className="text-xs text-gray-400">Proyección: {currency(projectedEOM)}</p>
+                  <div className="bg-white dark:bg-[#111111] rounded-2xl border border-gray-100 dark:border-white/[0.06] px-5 py-4 shadow-sm">
+                    <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Ritmo actual</p>
+                    <p className="text-xl font-bold text-gray-900 dark:text-white tabular-nums tracking-tight">{currency(currentDailyRate)}<span className="text-xs font-normal text-gray-400 dark:text-gray-500 ml-0.5">/día</span></p>
+                    <p className="text-xs text-gray-500 mt-1.5 tabular-nums">Proyección: {currency(projectedEOM)}</p>
                   </div>
-                  <div className="bg-blue-50 rounded-xl border border-blue-100 px-4 py-3">
-                    <p className="text-xs text-blue-500 mb-0.5">Diario recomendado</p>
-                    <p className="text-base font-bold text-blue-700">
-                      {currency(clientSummary.daily)}<span className="text-xs font-normal text-blue-400">/día</span>
+                  <div className="bg-blue-600/10 rounded-2xl border border-blue-500/20 px-5 py-4 shadow-sm">
+                    <p className="text-[11px] font-semibold text-blue-700 dark:text-blue-400 uppercase tracking-wider mb-2">Diario recomendado</p>
+                    <p className="text-xl font-bold text-blue-700 dark:text-blue-300 tabular-nums tracking-tight">
+                      {currency(clientSummary.daily)}<span className="text-xs font-normal text-blue-600/70 dark:text-blue-400/70 ml-0.5">/día</span>
                     </p>
-                    <p className="text-xs text-blue-400">{daysInMonth - daysPassed + 1}d restantes</p>
+                    <p className="text-xs text-blue-600/60 dark:text-blue-400/60 mt-1.5">{daysInMonth - daysPassed + 1}d restantes</p>
                   </div>
                 </div>
               )}
@@ -742,8 +982,8 @@ export default function CashflowPage() {
                   <span className={`text-xs font-semibold px-2.5 py-1 rounded-full text-white ${platformBadgeColor}`}>
                     {platformLabel}
                   </span>
-                  <span className="text-sm font-semibold text-gray-800">{selected.client}</span>
-                  <span className="text-xs text-gray-400">
+                  <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">{selected.client}</span>
+                  <span className="text-xs text-gray-400 dark:text-gray-400">
                     {activeBudgets.length} activa{activeBudgets.length !== 1 ? 's' : ''}
                     {pausedBudgets.length > 0 && ` · ${pausedBudgets.length} pausada${pausedBudgets.length !== 1 ? 's' : ''}`}
                   </span>
@@ -755,7 +995,7 @@ export default function CashflowPage() {
                     accountId: getClientAccountId(selected.client, selected.source),
                     source: selected.source,
                   })}
-                  className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 font-medium bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition"
+                  className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 font-medium bg-blue-600/15 hover:bg-blue-600/25 px-3 py-1.5 rounded-lg transition"
                 >
                   <Plus size={12} />
                   Agregar campaña
@@ -783,24 +1023,24 @@ export default function CashflowPage() {
 
               {/* Totals footer */}
               {activeBudgets.length >= 2 && (
-                <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 grid grid-cols-4 gap-3 text-sm mb-4">
+                <div className="bg-gray-50 dark:bg-[#252525] border border-gray-200 dark:border-[#2a2a2a] rounded-xl px-4 py-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4">
                   <div>
-                    <p className="text-xs text-gray-400 mb-0.5">Total presupuesto</p>
-                    <p className="font-bold text-gray-800">{currency(clientSummary.budget)}</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-400 mb-0.5">Total presupuesto</p>
+                    <p className="font-bold text-gray-800 dark:text-gray-200">{currency(clientSummary.budget)}</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-400 mb-0.5">Total gastado</p>
-                    <p className="font-bold text-gray-800">{currency(clientSummary.spend)}</p>
+                    <p className="font-bold text-gray-800 dark:text-gray-200">{currency(clientSummary.spend)}</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-400 mb-0.5">Restante</p>
-                    <p className={`font-bold ${clientSummary.budget - clientSummary.spend < 0 ? 'text-red-600' : 'text-gray-800'}`}>
+                    <p className={`font-bold ${clientSummary.budget - clientSummary.spend < 0 ? 'text-red-500' : 'text-gray-800 dark:text-gray-200'}`}>
                       {currency(clientSummary.budget - clientSummary.spend)}
                     </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-400 mb-0.5">Diario total</p>
-                    <p className="font-bold text-gray-800">{currency(clientSummary.daily)}/día</p>
+                    <p className="font-bold text-gray-800 dark:text-gray-200">{currency(clientSummary.daily)}/día</p>
                   </div>
                 </div>
               )}
@@ -808,7 +1048,7 @@ export default function CashflowPage() {
               {/* Paused campaigns */}
               {pausedBudgets.length > 0 && (
                 <>
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5 px-1">Pausadas</p>
+                  <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5 px-1">Pausadas</p>
                   <div className="space-y-1.5">
                     {pausedBudgets.map((b) => {
                       const spend = campaignSpend(b, monthBudgets, accounts, windsorCampaigns, windsorAdsets)
@@ -830,7 +1070,7 @@ export default function CashflowPage() {
               )}
 
               {clientBudgets.length === 0 && (
-                <div className="flex flex-col items-center justify-center h-40 text-gray-400 text-sm border border-dashed border-gray-200 rounded-xl">
+                <div className="flex flex-col items-center justify-center h-40 text-gray-400 dark:text-gray-500 text-sm border border-dashed border-gray-200 dark:border-[#2a2a2a] rounded-xl bg-gray-50 dark:bg-[#141414]">
                   <p>Sin campañas configuradas</p>
                   <button
                     onClick={() => setModal({
@@ -839,7 +1079,7 @@ export default function CashflowPage() {
                       accountId: getClientAccountId(selected.client, selected.source),
                       source: selected.source,
                     })}
-                    className="mt-2 text-blue-500 hover:text-blue-600 font-medium text-xs"
+                    className="mt-2 text-blue-400 hover:text-blue-300 font-medium text-xs"
                   >
                     Agregar primera campaña
                   </button>
@@ -849,7 +1089,7 @@ export default function CashflowPage() {
           )}
 
           {!loading && !selected && (
-            <div className="flex items-center justify-center h-48 text-gray-400 text-sm">
+            <div className="flex items-center justify-center h-48 text-gray-400 dark:text-gray-500 text-sm">
               Seleccioná un cliente del panel izquierdo
             </div>
           )}
@@ -874,15 +1114,8 @@ export default function CashflowPage() {
       {/* Add client modal */}
       {clientModal && (
         <ClientFormModal
-          source={clientModal}
-          year={year}
-          month={month}
-          existingIds={budgets.map((b) => b.campaign_id)}
-          onSave={async (entry) => {
-            await handleSave(entry)
-            setSelected({ client: entry.client_name, source: entry.source as Source })
-          }}
-          onClose={() => setClientModal(null)}
+          onSave={handleSaveClient}
+          onClose={() => setClientModal(false)}
         />
       )}
     </div>
