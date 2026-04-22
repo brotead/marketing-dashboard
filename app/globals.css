@@ -41,3 +41,20 @@ body {
   background: rgba(37, 99, 235, 0.25);
   color: inherit;
 }
+
+/* ── Overdue card pulse ──────────────────────────────── */
+@keyframes overdue-pulse {
+  0%, 75%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  87.5%          { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.18); }
+}
+.animate-overdue-pulse {
+  animation: overdue-pulse 5s ease-in-out infinite;
+}
+
+/* ── Premium modal step spinner ──────────────────────── */
+@keyframes spin-step {
+  to { transform: rotate(360deg); }
+}
+.spin-step {
+  animation: spin-step 0.8s linear infinite;
+}

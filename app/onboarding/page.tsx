@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Plus, Trash2, ChevronRight, X, Globe, AlertTriangle, CheckCircle2, Zap, RefreshCw, ExternalLink, Pencil, Check } from 'lucide-react'
 import type { OnboardingClient, Platform, BillingType } from '@/lib/onboarding'
 import {
@@ -58,6 +58,14 @@ function CheckItem({ label, checked, onChange }: { label: string; checked: boole
 
 // ── Client card ───────────────────────────────────────────────────────────────
 
+function clientOverdueInfo(client: OnboardingClient) {
+  const acc = checklistProgress(client.platform, client.checklist)
+  const trk = trackingProgress(client.checklist)
+  const complete = acc.checked >= acc.total && trk.checked >= trk.total
+  const days = Math.floor((Date.now() - new Date(client.created_at).getTime()) / 864e5)
+  return { isOverdue: !complete && days > 7, days, isComplete: complete }
+}
+
 function ClientCard({
   client, onView, onDelete, deleteConfirm, setDeleteConfirm,
 }: {
@@ -69,12 +77,24 @@ function ClientCard({
 }) {
   const accesos  = checklistProgress(client.platform, client.checklist)
   const tracking = trackingProgress(client.checklist)
+  const { isOverdue, days } = clientOverdueInfo(client)
 
   return (
-    <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl border border-gray-100 dark:border-[#2a2a2a] shadow-sm hover:shadow-md hover:border-gray-200 dark:hover:border-[#333] transition-all p-5 flex flex-col gap-4">
+    <div className={`rounded-2xl border shadow-sm hover:shadow-md transition-all p-5 flex flex-col gap-4 ${
+      isOverdue
+        ? 'bg-red-50 dark:bg-[rgba(80,0,0,0.22)] border-red-200 dark:border-[rgba(255,80,80,0.28)] hover:border-red-300 dark:hover:border-[rgba(255,80,80,0.45)] animate-overdue-pulse'
+        : 'bg-white dark:bg-[#1a1a1a] border-gray-100 dark:border-[#2a2a2a] hover:border-gray-200 dark:hover:border-[#333]'
+    }`}>
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="font-bold text-gray-900 dark:text-gray-100 text-base truncate">{client.name}</h3>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="font-bold text-gray-900 dark:text-gray-100 text-base truncate">{client.name}</h3>
+            {isOverdue && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/15 border border-red-400/30 text-red-500 dark:text-red-400 text-[10px] font-bold shrink-0">
+                ⚠ +7 días
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2 mt-1">
             <PlatformBadge platform={client.platform} />
             {client.website && (
@@ -87,24 +107,31 @@ function ClientCard({
             )}
           </div>
         </div>
-        <span className="text-[11px] text-gray-400 dark:text-gray-500 shrink-0">{fmtDate(client.created_at)}</span>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <span className="text-[11px] text-gray-400 dark:text-gray-500">{fmtDate(client.created_at)}</span>
+          {isOverdue && (
+            <span className="text-[10px] text-red-400/80">Hace {days} días</span>
+          )}
+        </div>
       </div>
 
       <div className="space-y-2">
         <div>
-          <p className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-1.5">Accesos</p>
+          <p className={`text-[10px] font-bold uppercase tracking-widest mb-1.5 ${isOverdue ? 'text-red-400/60 dark:text-red-400/50' : 'text-gray-400 dark:text-gray-500'}`}>Accesos</p>
           <ProgressBar checked={accesos.checked} total={accesos.total} />
         </div>
         <div>
-          <p className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-1.5">Técnico</p>
+          <p className={`text-[10px] font-bold uppercase tracking-widest mb-1.5 ${isOverdue ? 'text-red-400/60 dark:text-red-400/50' : 'text-gray-400 dark:text-gray-500'}`}>Técnico</p>
           <ProgressBar checked={tracking.checked} total={tracking.total} />
         </div>
       </div>
 
-      <div className="flex items-center gap-2 pt-1 border-t border-gray-100 dark:border-[#2a2a2a] mt-auto">
+      <div className={`flex items-center gap-2 pt-1 border-t mt-auto ${isOverdue ? 'border-red-200/60 dark:border-[rgba(255,80,80,0.15)]' : 'border-gray-100 dark:border-[#2a2a2a]'}`}>
         <button
           onClick={onView}
-          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition"
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-white text-xs font-semibold transition ${
+            isOverdue ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'
+          }`}
         >
           Ver detalle <ChevronRight size={12} />
         </button>
@@ -481,6 +508,18 @@ export default function OnboardingPage() {
     if (selected?.id === id) setSelected(null)
   }
 
+  const overdueCount = useMemo(() => clients.filter(c => clientOverdueInfo(c).isOverdue).length, [clients])
+
+  const sortedClients = useMemo(() => [...clients].sort((a, b) => {
+    function order(c: OnboardingClient) {
+      const { isOverdue, isComplete } = clientOverdueInfo(c)
+      if (isOverdue)  return 0
+      if (!isComplete) return 1
+      return 2
+    }
+    return order(a) - order(b)
+  }), [clients])
+
   return (
     <>
       <div className="space-y-6">
@@ -492,6 +531,11 @@ export default function OnboardingPage() {
                 <Zap size={13} className="text-white" />
               </div>
               <h1 className="text-xl font-bold text-gray-800 dark:text-gray-100">Onboarding Clientes</h1>
+              {overdueCount > 0 && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-500/10 border border-red-500/20 text-red-500 dark:text-red-400 text-xs font-bold">
+                  ⚠ {overdueCount} retrasado{overdueCount > 1 ? 's' : ''}
+                </span>
+              )}
             </div>
             <p className="text-xs text-gray-500 ml-9">Gestión técnica de clientes nuevos · Paid Media</p>
           </div>
@@ -525,9 +569,9 @@ export default function OnboardingPage() {
           </div>
         )}
 
-        {!loading && clients.length > 0 && (
+        {!loading && sortedClients.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {clients.map(c => (
+            {sortedClients.map(c => (
               <ClientCard
                 key={c.id}
                 client={c}
