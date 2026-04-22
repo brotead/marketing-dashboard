@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { RefreshCw, AlertCircle } from 'lucide-react'
+import { RefreshCw, AlertCircle, Plus } from 'lucide-react'
 import DashboardCard from '@/components/DashboardCard'
+import NewClientModal from '@/components/NewClientModal'
 import type { AccountData, BudgetEntry } from '@/lib/types'
 import { checklistProgress, trackingProgress } from '@/lib/onboarding'
 import type { OnboardingClient } from '@/lib/onboarding'
@@ -29,6 +30,7 @@ export default function DashboardPage() {
   const [loading,          setLoading]          = useState(true)
   const [error,            setError]            = useState<string | null>(null)
   const [onboardingCount,  setOnboardingCount]  = useState(0)
+  const [showNewClient,    setShowNewClient]    = useState(false)
   type SortOrder = 'priority' | 'spend_high' | 'spend_low'
   const [sortOrder, setSortOrder] = useState<SortOrder>('priority')
 
@@ -198,6 +200,12 @@ export default function DashboardPage() {
             {[2025, 2026, 2027].map((y) => <option key={y}>{y}</option>)}
           </select>
           <button
+            onClick={() => setShowNewClient(true)}
+            className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-700 hover:to-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 shadow-sm shadow-violet-500/20"
+          >
+            <Plus size={14} /> Nuevo cliente
+          </button>
+          <button
             onClick={fetchData}
             disabled={loading}
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 shadow-sm disabled:opacity-50"
@@ -312,6 +320,13 @@ export default function DashboardPage() {
         <div className="flex items-center justify-center h-48 text-gray-500 text-sm">
           No hay clientes configurados para este período
         </div>
+      )}
+
+      {showNewClient && (
+        <NewClientModal
+          onClose={() => setShowNewClient(false)}
+          onCreated={() => { setShowNewClient(false); fetchData() }}
+        />
       )}
     </div>
   )
