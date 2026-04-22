@@ -64,6 +64,76 @@ function currency(n: number) {
 
 async function micro(ms = 250) { await new Promise(r => setTimeout(r, ms)) }
 
+function AccountList({
+  candidates, filtered, picked, onPick, accentColor, search, onSearch,
+}: {
+  candidates: AccountData[]
+  filtered: AccountData[]
+  picked: AccountData | null
+  onPick: (a: AccountData) => void
+  accentColor: string
+  search: string
+  onSearch: (v: string) => void
+}) {
+  function currency(n: number) {
+    return n.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 })
+  }
+  if (candidates.length === 0) return (
+    <p className="text-xs text-gray-400 dark:text-gray-500 italic py-1">
+      No hay cuentas disponibles en Windsor para este mes.
+    </p>
+  )
+  return (
+    <div className="space-y-2">
+      <div className="relative">
+        <input
+          value={search}
+          onChange={e => onSearch(e.target.value)}
+          placeholder={`Buscar entre ${candidates.length} cuentas…`}
+          className="w-full px-3 py-2 text-xs bg-gray-50 dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] rounded-lg text-gray-800 dark:text-gray-200 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition"
+        />
+      </div>
+      {filtered.length === 0 ? (
+        <p className="text-xs text-gray-400 dark:text-gray-500 italic py-1 text-center">Sin resultados para "{search}"</p>
+      ) : (
+        <div className="space-y-1.5 max-h-44 overflow-y-auto">
+          {filtered.map(a => (
+            <button
+              key={a.account_id}
+              type="button"
+              onClick={() => onPick(a)}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-all ${
+                picked?.account_id === a.account_id
+                  ? `border-opacity-50 bg-opacity-10 ${accentColor === 'meta' ? 'border-[#1877F2] bg-[#1877F2]/10' : 'border-[#4285F4] bg-[#4285F4]/10'}`
+                  : 'border-gray-200 dark:border-[#2a2a2a] hover:bg-gray-50 dark:hover:bg-[#1a1a1a]'
+              }`}
+            >
+              <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
+                picked?.account_id === a.account_id
+                  ? accentColor === 'meta' ? 'border-[#1877F2]' : 'border-[#4285F4]'
+                  : 'border-gray-300 dark:border-gray-600'
+              }`}>
+                {picked?.account_id === a.account_id && (
+                  <div className={`w-2 h-2 rounded-full ${accentColor === 'meta' ? 'bg-[#1877F2]' : 'bg-[#4285F4]'}`} />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate">{a.account_name}</p>
+                <p className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums">
+                  ID: {a.account_id}{a.spend > 0 ? ` · ${currency(a.spend)}` : ''}
+                </p>
+              </div>
+              {picked?.account_id === a.account_id && (
+                <Check size={13} className={accentColor === 'meta' ? 'text-[#1877F2] shrink-0' : 'text-[#4285F4] shrink-0'} />
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function NewClientModal({ onClose, onCreated }: Props) {
   const router = useRouter()
 
@@ -107,6 +177,8 @@ export default function NewClientModal({ onClose, onCreated }: Props) {
   const [pickedGoogle,     setPickedGoogle]     = useState<AccountData | null>(null)
   const [needPickMeta,     setNeedPickMeta]     = useState(false)
   const [needPickGoogle,   setNeedPickGoogle]   = useState(false)
+  const [metaSearch,       setMetaSearch]       = useState('')
+  const [googleSearch,     setGoogleSearch]     = useState('')
 
   // ── Result state ──────────────────────────────────────────────────────────
   const [resultCount,   setResultCount]   = useState(0)
@@ -194,18 +266,21 @@ export default function NewClientModal({ onClose, onCreated }: Props) {
       const metaHits  = hasMeta   ? findMatches(trimmed, metaSrc)   : []
       const gHits     = hasGoogle ? findMatches(trimmed, googleSrc) : []
 
-      const pickMeta   = hasMeta   && metaHits.length   !== 1
-      const pickGoogle = hasGoogle && gHits.length !== 1
+      const ambiguousMeta   = hasMeta   && metaHits.length !== 1
+      const ambiguousGoogle = hasGoogle && gHits.length   !== 1
 
-      if (pickMeta || pickGoogle) {
-        // Pause flow — show account selector
-        setMetaCandidates(pickMeta   ? (metaHits.length   > 0 ? metaHits   : metaSrc.slice(0, 30))   : [])
-        setGoogleCandidates(pickGoogle ? (gHits.length > 0 ? gHits : googleSrc.slice(0, 30)) : [])
-        setNeedPickMeta(pickMeta)
-        setNeedPickGoogle(pickGoogle)
-        // Pre-set auto-resolved platforms
-        if (!pickMeta   && metaHits.length   === 1) setPickedMeta(metaHits[0])
-        if (!pickGoogle && gHits.length === 1) setPickedGoogle(gHits[0])
+      if (ambiguousMeta || ambiguousGoogle) {
+        // Show picker for ALL selected platforms — user confirms or changes selection
+        // No slice limit: show every Windsor account so nothing is hidden
+        setMetaCandidates(hasMeta   ? (metaHits.length   > 0 ? metaHits   : metaSrc)   : [])
+        setGoogleCandidates(hasGoogle ? (gHits.length > 0 ? gHits : googleSrc) : [])
+        setNeedPickMeta(hasMeta)
+        setNeedPickGoogle(hasGoogle)
+        // Pre-select when exactly one match was found (user can still change)
+        if (metaHits.length === 1) setPickedMeta(metaHits[0])
+        if (gHits.length    === 1) setPickedGoogle(gHits[0])
+        setMetaSearch('')
+        setGoogleSearch('')
         setPhase('pick')
         return
       }
@@ -220,8 +295,8 @@ export default function NewClientModal({ onClose, onCreated }: Props) {
   // Called when user confirms account selection
   async function continueAfterPick() {
     if (!snap) return
-    if (needPickMeta   && !pickedMeta)   return
-    if (needPickGoogle && !pickedGoogle) return
+    if (hasMeta   && metaCandidates.length   > 0 && !pickedMeta)   return
+    if (hasGoogle && googleCandidates.length > 0 && !pickedGoogle) return
 
     setPhase('processing')
     go(2, 'Vinculando cuentas seleccionadas…')
@@ -500,142 +575,93 @@ export default function NewClientModal({ onClose, onCreated }: Props) {
   )
 
   // ── ACCOUNT PICKER ────────────────────────────────────────────────────────
-  if (phase === 'pick') return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
-      <div className="relative w-full max-w-sm bg-white dark:bg-[#111] border border-gray-200 dark:border-[#222] rounded-2xl shadow-2xl overflow-hidden">
+  if (phase === 'pick') {
+    const filteredMeta   = metaSearch.trim()
+      ? metaCandidates.filter(a => norm(a.account_name).includes(norm(metaSearch)))
+      : metaCandidates
+    const filteredGoogle = googleSearch.trim()
+      ? googleCandidates.filter(a => norm(a.account_name).includes(norm(googleSearch)))
+      : googleCandidates
 
-        {/* Header stays same as processing */}
-        <div className="px-6 pt-6 pb-4 border-b border-gray-100 dark:border-[#222]">
-          <div className="flex items-center gap-2 mb-1">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-600 to-blue-600 flex items-center justify-center">
-              <Sparkles size={13} className="text-white" />
+    const canContinue =
+      (!hasMeta   || metaCandidates.length   === 0 || !!pickedMeta) &&
+      (!hasGoogle || googleCandidates.length === 0 || !!pickedGoogle)
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+        <div className="relative w-full max-w-sm bg-white dark:bg-[#111] border border-gray-200 dark:border-[#222] rounded-2xl shadow-2xl overflow-hidden">
+
+          <div className="px-6 pt-5 pb-4 border-b border-gray-100 dark:border-[#222]">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-600 to-blue-600 flex items-center justify-center">
+                <Sparkles size={13} className="text-white" />
+              </div>
+              <p className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">{createdName}</p>
             </div>
-            <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{createdName}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 ml-9">
+              Seleccioná las cuentas publicitarias en Windsor
+            </p>
           </div>
-          <p className="text-xs text-amber-500 dark:text-amber-400 ml-9">
-            Encontramos varias cuentas — seleccioná una para continuar
-          </p>
-        </div>
 
-        <div className="p-5 space-y-4 max-h-[65vh] overflow-y-auto">
-
-          {/* Meta picker */}
-          {needPickMeta && (
-            <div>
-              <p className="text-[11px] font-bold text-[#1877F2] uppercase tracking-wider mb-2">
-                Meta Ads
-                {metaCandidates.length === 0 && <span className="text-red-400 ml-2">— sin cuentas en Windsor</span>}
-              </p>
-              {metaCandidates.length === 0 ? (
-                <p className="text-xs text-gray-400 dark:text-gray-500 italic">
-                  No hay cuentas Meta disponibles en Windsor para este mes.
+          <div className="p-5 space-y-5 max-h-[60vh] overflow-y-auto">
+            {hasMeta && (
+              <div>
+                <p className="text-[11px] font-bold text-[#1877F2] uppercase tracking-wider mb-2.5 flex items-center gap-2">
+                  Meta Ads
+                  {pickedMeta && <span className="text-[10px] text-emerald-500 normal-case font-medium tracking-normal">✓ seleccionada</span>}
                 </p>
-              ) : (
-                <div className="space-y-1.5">
-                  {metaCandidates.map(a => (
-                    <button
-                      key={a.account_id}
-                      type="button"
-                      onClick={() => setPickedMeta(a)}
-                      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border text-left transition-all ${
-                        pickedMeta?.account_id === a.account_id
-                          ? 'border-[#1877F2]/50 bg-[#1877F2]/8 dark:bg-[#1877F2]/10'
-                          : 'border-gray-200 dark:border-[#2a2a2a] hover:bg-gray-50 dark:hover:bg-[#1a1a1a]'
-                      }`}
-                    >
-                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                        pickedMeta?.account_id === a.account_id
-                          ? 'border-[#1877F2]'
-                          : 'border-gray-300 dark:border-gray-600'
-                      }`}>
-                        {pickedMeta?.account_id === a.account_id && (
-                          <div className="w-2 h-2 rounded-full bg-[#1877F2]" />
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate">{a.account_name}</p>
-                        <p className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums">
-                          ID: {a.account_id} · Gasto: {a.spend > 0 ? currency(a.spend) : '—'}
-                        </p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Google picker */}
-          {needPickGoogle && (
-            <div>
-              <p className="text-[11px] font-bold text-[#4285F4] uppercase tracking-wider mb-2">
-                Google Ads
-                {googleCandidates.length === 0 && <span className="text-red-400 ml-2">— sin cuentas en Windsor</span>}
-              </p>
-              {googleCandidates.length === 0 ? (
-                <p className="text-xs text-gray-400 dark:text-gray-500 italic">
-                  No hay cuentas Google disponibles en Windsor para este mes.
+                <AccountList
+                  candidates={metaCandidates}
+                  filtered={filteredMeta}
+                  picked={pickedMeta}
+                  onPick={setPickedMeta}
+                  accentColor="meta"
+                  search={metaSearch}
+                  onSearch={setMetaSearch}
+                />
+              </div>
+            )}
+            {hasGoogle && (
+              <div>
+                <p className="text-[11px] font-bold text-[#4285F4] uppercase tracking-wider mb-2.5 flex items-center gap-2">
+                  Google Ads
+                  {pickedGoogle && <span className="text-[10px] text-emerald-500 normal-case font-medium tracking-normal">✓ seleccionada</span>}
                 </p>
-              ) : (
-                <div className="space-y-1.5">
-                  {googleCandidates.map(a => (
-                    <button
-                      key={a.account_id}
-                      type="button"
-                      onClick={() => setPickedGoogle(a)}
-                      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border text-left transition-all ${
-                        pickedGoogle?.account_id === a.account_id
-                          ? 'border-[#4285F4]/50 bg-[#4285F4]/8 dark:bg-[#4285F4]/10'
-                          : 'border-gray-200 dark:border-[#2a2a2a] hover:bg-gray-50 dark:hover:bg-[#1a1a1a]'
-                      }`}
-                    >
-                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                        pickedGoogle?.account_id === a.account_id
-                          ? 'border-[#4285F4]'
-                          : 'border-gray-300 dark:border-gray-600'
-                      }`}>
-                        {pickedGoogle?.account_id === a.account_id && (
-                          <div className="w-2 h-2 rounded-full bg-[#4285F4]" />
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate">{a.account_name}</p>
-                        <p className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums">
-                          ID: {a.account_id} · Gasto: {a.spend > 0 ? currency(a.spend) : '—'}
-                        </p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+                <AccountList
+                  candidates={googleCandidates}
+                  filtered={filteredGoogle}
+                  picked={pickedGoogle}
+                  onPick={setPickedGoogle}
+                  accentColor="google"
+                  search={googleSearch}
+                  onSearch={setGoogleSearch}
+                />
+              </div>
+            )}
+          </div>
 
-        <div className="px-5 pb-5 pt-3 border-t border-gray-100 dark:border-[#222] flex gap-2">
-          <button
-            type="button"
-            onClick={() => { setPhase('form'); setPickedMeta(null); setPickedGoogle(null) }}
-            className="px-4 py-2.5 border border-gray-200 dark:border-[#2a2a2a] text-gray-500 dark:text-gray-400 rounded-xl text-xs font-semibold hover:bg-gray-50 dark:hover:bg-[#1a1a1a] transition"
-          >
-            Volver
-          </button>
-          <button
-            type="button"
-            onClick={continueAfterPick}
-            disabled={
-              (needPickMeta && !pickedMeta && metaCandidates.length > 0) ||
-              (needPickGoogle && !pickedGoogle && googleCandidates.length > 0)
-            }
-            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-gradient-to-r from-violet-600 to-blue-600 text-white rounded-xl text-xs font-bold hover:from-violet-700 hover:to-blue-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            Continuar <ArrowRight size={13} />
-          </button>
+          <div className="px-5 pb-5 pt-3 border-t border-gray-100 dark:border-[#222] flex gap-2">
+            <button
+              type="button"
+              onClick={() => { setPhase('form'); setPickedMeta(null); setPickedGoogle(null) }}
+              className="px-4 py-2.5 border border-gray-200 dark:border-[#2a2a2a] text-gray-500 dark:text-gray-400 rounded-xl text-xs font-semibold hover:bg-gray-50 dark:hover:bg-[#1a1a1a] transition"
+            >
+              Volver
+            </button>
+            <button
+              type="button"
+              onClick={continueAfterPick}
+              disabled={!canContinue}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-gradient-to-r from-violet-600 to-blue-600 text-white rounded-xl text-xs font-bold hover:from-violet-700 hover:to-blue-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Continuar <ArrowRight size={13} />
+            </button>
+          </div>
         </div>
       </div>
-    </div>
-  )
+    )
+  }
 
   // ── SUCCESS ───────────────────────────────────────────────────────────────
   if (phase === 'success') return (
