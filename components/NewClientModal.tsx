@@ -266,26 +266,17 @@ export default function NewClientModal({ onClose, onCreated }: Props) {
       const metaHits  = hasMeta   ? findMatches(trimmed, metaSrc)   : []
       const gHits     = hasGoogle ? findMatches(trimmed, googleSrc) : []
 
-      const ambiguousMeta   = hasMeta   && metaHits.length !== 1
-      const ambiguousGoogle = hasGoogle && gHits.length   !== 1
-
-      if (ambiguousMeta || ambiguousGoogle) {
-        // Show picker for ALL selected platforms — user confirms or changes selection
-        // No slice limit: show every Windsor account so nothing is hidden
-        setMetaCandidates(hasMeta   ? (metaHits.length   > 0 ? metaHits   : metaSrc)   : [])
-        setGoogleCandidates(hasGoogle ? (gHits.length > 0 ? gHits : googleSrc) : [])
-        setNeedPickMeta(hasMeta)
-        setNeedPickGoogle(hasGoogle)
-        // Pre-select when exactly one match was found (user can still change)
-        if (metaHits.length === 1) setPickedMeta(metaHits[0])
-        if (gHits.length    === 1) setPickedGoogle(gHits[0])
-        setMetaSearch('')
-        setGoogleSearch('')
-        setPhase('pick')
-        return
-      }
-
-      await doImport(trimmed, s, metaHits[0] ?? null, gHits[0] ?? null)
+      // Always show picker — user must confirm the account selection
+      // Show ALL Windsor accounts; pre-select the best fuzzy match so it's easy to confirm
+      setMetaCandidates(hasMeta   ? metaSrc   : [])
+      setGoogleCandidates(hasGoogle ? googleSrc : [])
+      setNeedPickMeta(hasMeta)
+      setNeedPickGoogle(hasGoogle)
+      if (metaHits.length > 0)  setPickedMeta(metaHits[0])
+      if (gHits.length    > 0)  setPickedGoogle(gHits[0])
+      setMetaSearch('')
+      setGoogleSearch('')
+      setPhase('pick')
     } catch (err) {
       setError(String(err))
       setPhase('error')
