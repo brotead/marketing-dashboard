@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { X, Sparkles, Check, AlertCircle, ArrowRight, ExternalLink } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import type { AccountData, CampaignSpend } from '@/lib/types'
@@ -74,6 +74,24 @@ export default function NewClientModal({ onClose, onCreated }: Props) {
   const [metaBudget,   setMetaBudget]   = useState('')
   const [googleBudget, setGoogleBudget] = useState('')
 
+  // ── Windsor prefetch (starts as soon as the modal opens) ─────────────────
+  const prefetchRef = useRef<{ accounts: AccountData[]; campaigns: CampaignSpend[] } | null>(null)
+  const prefetchingRef = useRef(false)
+
+  useEffect(() => {
+    const today = new Date()
+    const yr = today.getFullYear()
+    const mo = today.getMonth() + 1
+    prefetchingRef.current = true
+    fetch(`/api/windsor?year=${yr}&month=${mo}&force=true`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) prefetchRef.current = { accounts: data.data ?? [], campaigns: data.campaigns ?? [] }
+        prefetchingRef.current = false
+      })
+      .catch(() => { prefetchingRef.current = false })
+  }, [])
+
   // ── Flow state ────────────────────────────────────────────────────────────
   const [phase,       setPhase]       = useState<Phase>('form')
   const [stepIdx,     setStepIdx]     = useState(0)
@@ -114,25 +132,56 @@ export default function NewClientModal({ onClose, onCreated }: Props) {
 
       await micro(300)
 
-      // ── Step 1: Fetch Windsor (real, with retry) ─────────────────────────
+      // ── Step 1: Fetch Windsor — use prefetch if ready, else fetch now ───────
       go(1, 'Conectando con Windsor…')
-      let wData: { data: AccountData[]; campaigns: CampaignSpend[] } | null = null
-      let attempt = 0
-      while (!wData) {
-        attempt++
-        if (attempt > 1) go(1, `Reconectando con Windsor (intento ${attempt})…`)
-        try {
-          const res = await fetch(`/api/windsor?year=${yr}&month=${mo}&force=true`)
-          if (!res.ok) throw new Error(`HTTP ${res.status}`)
-          wData = await res.json()
-        } catch {
-          if (attempt >= 3) throw new Error('No se pudo conectar con Windsor después de 3 intentos')
-          go(1, 'Reintentando conexión…')
-          await new Promise(r => setTimeout(r, 2000 * attempt))
+
+      let accounts: AccountData[]   = []
+      let campaigns: CampaignSpend[] = []
+
+      const pre = prefetchRef.current
+      if (pre) {
+        // Prefetch already completed while user filled the form
+        accounts  = pre.accounts
+        campaigns = pre.campaigns
+        go(1, 'Datos de Windsor actualizados ✓')
+        await micro(300)
+      } else {
+        // Prefetch still in progress or failed — wait for it a bit, then fetch ourselves
+        if (prefetchingRef.current) {
+          go(1, 'Esperando respuesta de Windsor…')
+          const deadline = Date.now() + 15000
+          while (prefetchingRef.current && Date.now() < deadline) {
+            await new Promise(r => setTimeout(r, 500))
+          }
+        }
+
+        const pre2 = prefetchRef.current
+        if (pre2) {
+          accounts  = pre2.accounts
+          campaigns = pre2.campaigns
+          go(1, 'Datos de Windsor actualizados ✓')
+          await micro(200)
+        } else {
+          // Prefetch failed or timed out — fetch directly with retry
+          let attempt = 0
+          let wData: { data: AccountData[]; campaigns: CampaignSpend[] } | null = null
+          while (!wData) {
+            attempt++
+            if (attempt > 1) go(1, `Reconectando con Windsor (intento ${attempt})…`)
+            try {
+              const res = await fetch(`/api/windsor?year=${yr}&month=${mo}&force=true`)
+              if (!res.ok) throw new Error(`HTTP ${res.status}`)
+              wData = await res.json()
+            } catch {
+              if (attempt >= 3) throw new Error('No se pudo conectar con Windsor después de 3 intentos')
+              go(1, 'Reintentando conexión…')
+              await new Promise(r => setTimeout(r, 2000 * attempt))
+            }
+          }
+          accounts  = wData.data      ?? []
+          campaigns = wData.campaigns ?? []
         }
       }
-      const accounts:  AccountData[]   = wData.data      ?? []
-      const campaigns: CampaignSpend[] = wData.campaigns ?? []
       const s: Snap = { accounts, campaigns, yr, mo }
       setSnap(s)
 
@@ -298,7 +347,10 @@ export default function NewClientModal({ onClose, onCreated }: Props) {
                 </div>
                 <h2 className="text-base font-bold text-white">Nuevo Cliente</h2>
               </div>
-              <p className="text-xs text-white/70">Alta automática · Windsor + Dashboard + Cashflow + Objetivos</p>
+              <p className="text-xs text-white/70 flex items-center gap-1.5">
+                Alta automática · Windsor + Dashboard + Cashflow + Objetivos
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-white/50 animate-pulse" title="Actualizando cuentas Windsor…" />
+              </p>
             </div>
             <button onClick={onClose} className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 transition">
               <X size={14} />
