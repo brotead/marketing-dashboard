@@ -535,6 +535,47 @@ export async function fetchFatigueAds(allowedAccountIds?: Set<string>): Promise<
   return results
 }
 
+// ── Account discovery: last 90 days, returns every connected account ─────────────
+// Windsor only returns rows when there is spend data, so a monthly fetch misses
+// accounts that were inactive this month. This function does a lightweight pass
+// over the last 90 days to discover ALL connected accounts, then merges them into
+// the monthly results (spend=0 for accounts with no activity this month).
+async function discoverAllAccounts(
+  connectorUrl: string,
+  sourceLabel: string
+): Promise<Map<string, { account_id: string; account_name: string }>> {
+  const apiKey = process.env.WINDSOR_API_KEY
+  if (!apiKey) return new Map()
+
+  const today = new Date()
+  const from  = new Date(today)
+  from.setDate(from.getDate() - 90)
+
+  const url = new URL(connectorUrl)
+  url.searchParams.set('api_key', apiKey)
+  url.searchParams.set('date_from', from.toISOString().split('T')[0])
+  url.searchParams.set('date_to', today.toISOString().split('T')[0])
+  url.searchParams.set('fields', 'account_id,account_name,source,spend')
+  url.searchParams.set('_renderer', 'json')
+
+  try {
+    const res = await fetch(url.toString(), { cache: 'no-store' })
+    if (!res.ok) return new Map()
+    const json = await res.json()
+    const map = new Map<string, { account_id: string; account_name: string }>()
+    for (const r of (json.data ?? []) as RawRecord[]) {
+      if (r.source !== sourceLabel || !r.account_id || map.has(r.account_id)) continue
+      map.set(r.account_id, {
+        account_id:   r.account_id,
+        account_name: r.account_name ?? r.account_id,
+      })
+    }
+    return map
+  } catch {
+    return new Map()
+  }
+}
+
 // ── Spend accounts ──────────────────────────────────────────────────────────────
 const EMPTY_FETCH: AccountFetchResult = { accounts: [], campaigns: [], adsets: [] }
 
@@ -550,7 +591,7 @@ export async function fetchWindsorAccounts(
     if (cached && Date.now() - cached.ts < WINDSOR_TTL) return cached.data
   }
 
-  const [meta, google] = await Promise.all([
+  const [meta, google, metaDiscovery, googleDiscovery] = await Promise.all([
     fetchAccounts(year, month, WINDSOR_FACEBOOK, 'facebook').catch((e) => {
       console.error('[Windsor] Facebook connector error (ignorado):', e.message)
       return EMPTY_FETCH
@@ -559,7 +600,24 @@ export async function fetchWindsorAccounts(
       console.error('[Windsor] Google connector error (ignorado):', e.message)
       return EMPTY_FETCH
     }),
+    discoverAllAccounts(WINDSOR_FACEBOOK, 'facebook').catch(() => new Map()),
+    discoverAllAccounts(WINDSOR_GOOGLE,   'google'  ).catch(() => new Map()),
   ])
+
+  // Merge discovery: add any account that has no spend this month (spend=0)
+  const metaIds   = new Set(meta.accounts.map(a => a.account_id))
+  const googleIds = new Set(google.accounts.map(a => a.account_id))
+
+  for (const [id, d] of Array.from(metaDiscovery.entries())) {
+    if (!metaIds.has(id)) {
+      meta.accounts.push({ account_id: d.account_id, account_name: d.account_name, source: 'facebook', spend: 0, recent_spend: 0, campaign_count: 0 })
+    }
+  }
+  for (const [id, d] of Array.from(googleDiscovery.entries())) {
+    if (!googleIds.has(id)) {
+      google.accounts.push({ account_id: d.account_id, account_name: d.account_name, source: 'google', spend: 0, recent_spend: 0, campaign_count: 0 })
+    }
+  }
 
   const result: WindsorCached = {
     accounts:  [...meta.accounts,  ...google.accounts],
