@@ -69,7 +69,7 @@ const ROLE_ICONS = { super_admin: Crown, editor: Pencil, reader: BookOpen }
 const ROLE_LABELS = { super_admin: 'Super Admin', editor: 'Editor', reader: 'Lector' }
 
 function UserPanel({ onOpenUsers }: { onOpenUsers: () => void }) {
-  const { profile, signOut, isSuperAdmin } = useAuth()
+  const { profile, signOut } = useAuth()
   const router = useRouter()
 
   const handleSignOut = async () => {
@@ -106,16 +106,14 @@ function UserPanel({ onOpenUsers }: { onOpenUsers: () => void }) {
         )
       })()}
 
-      {/* Settings button — super admin only */}
-      {isSuperAdmin && (
-        <button
-          onClick={onOpenUsers}
-          className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-xl text-[13px] font-medium text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-black/[0.05] dark:hover:bg-white/[0.04] transition-all duration-150"
-        >
-          <Settings size={14} strokeWidth={1.75} />
-          <span>Usuarios y permisos</span>
-        </button>
-      )}
+      {/* Settings button — visible to all */}
+      <button
+        onClick={onOpenUsers}
+        className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-xl text-[13px] font-medium text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-black/[0.05] dark:hover:bg-white/[0.04] transition-all duration-150"
+      >
+        <Settings size={14} strokeWidth={1.75} />
+        <span>Usuarios y permisos</span>
+      </button>
 
       {/* Sign out button — always visible */}
       <button
