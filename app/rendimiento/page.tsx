@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { RefreshCw, Plus } from 'lucide-react'
+import { useAuth } from '@/contexts/AuthContext'
 import PacingCard from '@/components/PacingCard'
 import dynamic from 'next/dynamic'
 const GoalModal = dynamic(() => import('@/components/GoalModal'), { ssr: false })
@@ -22,6 +23,7 @@ const MONTHS = [
 ]
 
 export default function RendimientoPage() {
+  const { canEdit } = useAuth()
   const today = new Date()
   const [year, setYear]   = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth() + 1)
@@ -224,12 +226,14 @@ export default function RendimientoPage() {
           >
             {[2025, 2026, 2027].map((y) => <option key={y}>{y}</option>)}
           </select>
-          <button
-            onClick={() => { setEditingGoal(null); setShowModal(true) }}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 shadow-sm"
-          >
-            <Plus size={14} /> Agregar objetivo
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => { setEditingGoal(null); setShowModal(true) }}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 shadow-sm"
+            >
+              <Plus size={14} /> Agregar objetivo
+            </button>
+          )}
           <button
             onClick={fetchData}
             className="flex items-center gap-2 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-gray-400 hover:text-gray-200 px-3 py-2.5 rounded-xl text-sm transition-all duration-150"
