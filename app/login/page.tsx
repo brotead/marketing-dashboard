@@ -143,7 +143,7 @@ function mapAuthError(msg: string, mode: 'signin' | 'signup'): { text: string; h
     if (m.includes('too many'))
       return { text: 'Demasiados intentos. Esperá unos minutos.' }
   }
-  return { text: 'Ocurrió un error. Intentá de nuevo.' }
+  return { text: `Error: ${msg}` }
 }
 
 // ── Role card ─────────────────────────────────────────────────────────────────
