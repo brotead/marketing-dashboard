@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw, Plus, Pencil, AlertTriangle, UserPlus, Clock, Trash2 } from 'lucide-react'
+import { useAuth } from '@/contexts/AuthContext'
 import CampaignRow from '@/components/CampaignRow'
 import dynamic from 'next/dynamic'
 const CampaignFormModal = dynamic(() => import('@/components/CampaignFormModal'), { ssr: false })
@@ -415,6 +416,7 @@ function PendingClientPanel({ client, source, windsorCampaigns, year, month, onR
 
 export default function CashflowPage() {
   const today = new Date()
+  const { canEdit } = useAuth()
   const [year, setYear] = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth() + 1)
   const [accounts, setAccounts] = useState<AccountData[]>([])
@@ -840,13 +842,15 @@ export default function CashflowPage() {
                     <span className="w-2 h-2 rounded-full bg-[#1877F2]" />
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Meta Ads</p>
                   </div>
-                  <button
-                    onClick={() => setClientModal(true)}
-                    className="text-gray-500 hover:text-blue-400 transition"
-                    title="Agregar cliente Meta"
-                  >
-                    <UserPlus size={13} />
-                  </button>
+                  {canEdit && (
+                    <button
+                      onClick={() => setClientModal(true)}
+                      className="text-gray-500 hover:text-blue-400 transition"
+                      title="Agregar cliente Meta"
+                    >
+                      <UserPlus size={13} />
+                    </button>
+                  )}
                 </div>
                 {metaClients.length > 0
                   ? <ClientList source="facebook" clients={metaClients} color="bg-[#1877F2]" />
@@ -864,13 +868,15 @@ export default function CashflowPage() {
                     <span className="w-2 h-2 rounded-full bg-[#4285F4]" />
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Google Ads</p>
                   </div>
-                  <button
-                    onClick={() => setClientModal(true)}
-                    className="text-gray-500 hover:text-blue-400 transition"
-                    title="Agregar cliente Google"
-                  >
-                    <UserPlus size={13} />
-                  </button>
+                  {canEdit && (
+                    <button
+                      onClick={() => setClientModal(true)}
+                      className="text-gray-500 hover:text-blue-400 transition"
+                      title="Agregar cliente Google"
+                    >
+                      <UserPlus size={13} />
+                    </button>
+                  )}
                 </div>
                 {googleClients.length > 0
                   ? <ClientList source="google" clients={googleClients} color="bg-[#4285F4]" />
@@ -944,13 +950,15 @@ export default function CashflowPage() {
                     ) : (
                       <div className="flex items-center gap-1.5">
                         <p className="text-xl font-bold text-gray-900 dark:text-white tabular-nums tracking-tight">{currency(clientSummary.budget)}</p>
-                        <button
-                          onClick={() => { setTotalInput(String(clientSummary.budget)); setEditingTotal(true) }}
-                          className="text-gray-600 hover:text-gray-400 transition mt-0.5"
-                          title="Editar presupuesto total"
-                        >
-                          <Pencil size={11} />
-                        </button>
+                        {canEdit && (
+                          <button
+                            onClick={() => { setTotalInput(String(clientSummary.budget)); setEditingTotal(true) }}
+                            className="text-gray-600 hover:text-gray-400 transition mt-0.5"
+                            title="Editar presupuesto total"
+                          >
+                            <Pencil size={11} />
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -988,18 +996,20 @@ export default function CashflowPage() {
                     {pausedBudgets.length > 0 && ` · ${pausedBudgets.length} pausada${pausedBudgets.length !== 1 ? 's' : ''}`}
                   </span>
                 </div>
-                <button
-                  onClick={() => setModal({
-                    entry: null,
-                    clientName: selected.client,
-                    accountId: getClientAccountId(selected.client, selected.source),
-                    source: selected.source,
-                  })}
-                  className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 font-medium bg-blue-600/15 hover:bg-blue-600/25 px-3 py-1.5 rounded-lg transition"
-                >
-                  <Plus size={12} />
-                  Agregar campaña
-                </button>
+                {canEdit && (
+                  <button
+                    onClick={() => setModal({
+                      entry: null,
+                      clientName: selected.client,
+                      accountId: getClientAccountId(selected.client, selected.source),
+                      source: selected.source,
+                    })}
+                    className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 font-medium bg-blue-600/15 hover:bg-blue-600/25 px-3 py-1.5 rounded-lg transition"
+                  >
+                    <Plus size={12} />
+                    Agregar campaña
+                  </button>
+                )}
               </div>
 
               {/* Active campaigns */}
