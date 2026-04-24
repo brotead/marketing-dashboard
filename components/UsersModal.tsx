@@ -11,7 +11,7 @@ interface Props {
 }
 
 const ROLE_LABELS: Record<Profile['role'], string> = {
-  super_admin: 'Super Admin',
+  super_admin: 'Administrador',
   editor: 'Editor',
   reader: 'Lector',
 }

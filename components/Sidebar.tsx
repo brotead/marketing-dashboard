@@ -66,7 +66,7 @@ function ThemeToggle() {
 }
 
 const ROLE_ICONS = { super_admin: Crown, editor: Pencil, reader: BookOpen }
-const ROLE_LABELS = { super_admin: 'Super Admin', editor: 'Editor', reader: 'Lector' }
+const ROLE_LABELS = { super_admin: 'Administrador', editor: 'Editor', reader: 'Lector' }
 
 function UserPanel({ onOpenUsers }: { onOpenUsers: () => void }) {
   const { profile, signOut } = useAuth()
