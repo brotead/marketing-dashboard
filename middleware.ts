@@ -1,58 +1,47 @@
-import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-export async function middleware(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request })
+// Supabase stores the session in a cookie named sb-{project-ref}-auth-token
+// Checking the cookie directly avoids a network round-trip on every navigation.
+const PROJECT_REF = 'riyxqtupvorjyylzmbvz'
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
-          supabaseResponse = NextResponse.next({ request })
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          )
-        },
-      },
-    }
+export function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
+
+  // Always pass through: auth callback, API routes, Next.js internals, static files
+  if (
+    pathname.startsWith('/auth/') ||
+    pathname.startsWith('/api/') ||
+    pathname.startsWith('/_next/')
+  ) {
+    return NextResponse.next()
+  }
+
+  // Session exists if Supabase auth cookie is present
+  const hasSession = request.cookies.getAll().some(
+    c => c.name.startsWith(`sb-${PROJECT_REF}-auth-token`)
   )
 
-  // Refresh session if expired (important — do not remove)
-  const { data: { user } } = await supabase.auth.getUser()
-
-  const { pathname } = request.nextUrl
-  const isAuthRoute = pathname.startsWith('/auth/')
   const isLoginPage = pathname === '/login'
-  const isApiRoute  = pathname.startsWith('/api/')
 
-  // Always allow: auth callback, API routes (protected at API level), static assets
-  if (isAuthRoute || isApiRoute) return supabaseResponse
-
-  // Not logged in → send to login
-  if (!user && !isLoginPage) {
+  // No session → redirect to login
+  if (!hasSession && !isLoginPage) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
   }
 
-  // Already logged in → no reason to be on login page
-  if (user && isLoginPage) {
+  // Has session → don't show login again
+  if (hasSession && isLoginPage) {
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
     return NextResponse.redirect(url)
   }
 
-  return supabaseResponse
+  return NextResponse.next()
 }
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|logo\\.png|.*\\.png|.*\\.jpg|.*\\.ico|.*\\.svg).*)',
+    '/((?!_next/static|_next/image|favicon\\.ico|logo\\.png|.*\\.png|.*\\.jpg|.*\\.ico|.*\\.svg).*)',
   ],
 }
