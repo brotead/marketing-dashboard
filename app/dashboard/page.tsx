@@ -8,6 +8,7 @@ import NewClientModal from '@/components/NewClientModal'
 import type { AccountData, BudgetEntry } from '@/lib/types'
 import { checklistProgress, trackingProgress } from '@/lib/onboarding'
 import type { OnboardingClient } from '@/lib/onboarding'
+import { useAuth } from '@/contexts/AuthContext'
 
 const MONTHS = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -23,6 +24,7 @@ function currency(n: number) {
 export default function DashboardPage() {
   const today  = new Date()
   const router = useRouter()
+  const { canEdit } = useAuth()
   const [year,     setYear]     = useState(today.getFullYear())
   const [month,    setMonth]    = useState(today.getMonth() + 1)
   const [accounts, setAccounts] = useState<AccountData[]>([])
@@ -199,12 +201,14 @@ export default function DashboardPage() {
           >
             {[2025, 2026, 2027].map((y) => <option key={y}>{y}</option>)}
           </select>
-          <button
-            onClick={() => setShowNewClient(true)}
-            className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-700 hover:to-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 shadow-sm shadow-violet-500/20"
-          >
-            <Plus size={14} /> Nuevo cliente
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => setShowNewClient(true)}
+              className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-700 hover:to-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 shadow-sm shadow-violet-500/20"
+            >
+              <Plus size={14} /> Nuevo cliente
+            </button>
+          )}
           <button
             onClick={fetchData}
             disabled={loading}

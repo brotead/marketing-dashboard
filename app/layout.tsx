@@ -3,6 +3,8 @@ import { Inter } from 'next/font/google'
 import './globals.css'
 import Sidebar from '@/components/Sidebar'
 import { ThemeProvider } from '@/components/ThemeProvider'
+import { AuthProvider } from '@/contexts/AuthContext'
+import AppShell from '@/components/AppShell'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -12,8 +14,8 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  title: 'Marketing Dashboard',
-  description: 'Panel de control de campañas publicitarias',
+  title: 'Brote AD',
+  description: 'Panel de pauta digital',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -25,15 +27,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className={`${inter.className} bg-slate-50 dark:bg-[#0f0f0f] text-gray-900 dark:text-gray-100`}>
         <ThemeProvider>
-          <div className="flex h-screen overflow-hidden">
-            <Sidebar />
-            <main className="flex-1 min-w-0 overflow-y-auto">
-              <div className="lg:hidden h-14 shrink-0" />
-              <div className="px-6 sm:px-8 xl:px-10 py-8">
-                {children}
-              </div>
-            </main>
-          </div>
+          <AuthProvider>
+            <AppShell>
+              {children}
+            </AppShell>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>
