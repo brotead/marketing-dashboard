@@ -71,66 +71,59 @@ const ROLE_LABELS = { super_admin: 'Super Admin', editor: 'Editor', reader: 'Lec
 function UserPanel({ onOpenUsers }: { onOpenUsers: () => void }) {
   const { profile, signOut, isSuperAdmin } = useAuth()
   const router = useRouter()
-  const [showMenu, setShowMenu] = useState(false)
 
   const handleSignOut = async () => {
     await signOut()
     router.push('/login')
   }
 
-  if (!profile) return null
-
-  const RoleIcon = ROLE_ICONS[profile.role]
-  const initials = (profile.name ?? profile.email).slice(0, 2).toUpperCase()
-
   return (
-    <div className="relative">
-      {showMenu && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
-          <div className="absolute bottom-full left-0 right-0 mb-2 z-20 bg-white dark:bg-[#161616] border border-gray-200 dark:border-[#2a2a2a] rounded-xl shadow-xl overflow-hidden">
-            {isSuperAdmin && (
-              <button
-                onClick={() => { setShowMenu(false); onOpenUsers() }}
-                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[12px] font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-[#1e1e1e] transition text-left"
-              >
-                <Settings size={13} />
-                Usuarios y permisos
-              </button>
+    <div className="space-y-0.5">
+      {/* User info row */}
+      {profile && (() => {
+        const RoleIcon = ROLE_ICONS[profile.role]
+        const initials = (profile.name ?? profile.email).slice(0, 2).toUpperCase()
+        return (
+          <div className="flex items-center gap-3 px-3 py-2.5">
+            {profile.avatar_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={profile.avatar_url} alt="" className="w-7 h-7 rounded-lg object-cover shrink-0" />
+            ) : (
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-600 to-blue-600 flex items-center justify-center text-white text-[10px] font-bold shrink-0">
+                {initials}
+              </div>
             )}
-            <button
-              onClick={handleSignOut}
-              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[12px] font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition text-left"
-            >
-              <LogOut size={13} />
-              Cerrar sesión
-            </button>
+            <div className="flex-1 min-w-0">
+              <p className="text-[12px] font-semibold text-gray-700 dark:text-gray-300 truncate leading-none mb-[3px]">
+                {profile.name ?? profile.email.split('@')[0]}
+              </p>
+              <p className="text-[10px] text-gray-400 dark:text-gray-600 truncate leading-none flex items-center gap-1">
+                <RoleIcon size={9} />
+                {ROLE_LABELS[profile.role]}
+              </p>
+            </div>
           </div>
-        </>
+        )
+      })()}
+
+      {/* Settings button — super admin only */}
+      {isSuperAdmin && (
+        <button
+          onClick={onOpenUsers}
+          className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-xl text-[13px] font-medium text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-black/[0.05] dark:hover:bg-white/[0.04] transition-all duration-150"
+        >
+          <Settings size={14} strokeWidth={1.75} />
+          <span>Usuarios y permisos</span>
+        </button>
       )}
 
+      {/* Sign out button — always visible */}
       <button
-        onClick={() => setShowMenu(v => !v)}
-        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition group cursor-pointer"
+        onClick={handleSignOut}
+        className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-xl text-[13px] font-medium text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all duration-150"
       >
-        {profile.avatar_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={profile.avatar_url} alt="" className="w-7 h-7 rounded-lg object-cover shrink-0" />
-        ) : (
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-600 to-blue-600 flex items-center justify-center text-white text-[10px] font-bold shrink-0">
-            {initials}
-          </div>
-        )}
-        <div className="flex-1 min-w-0 text-left">
-          <p className="text-[12px] font-semibold text-gray-700 dark:text-gray-300 truncate leading-none mb-[3px]">
-            {profile.name ?? profile.email.split('@')[0]}
-          </p>
-          <p className="text-[10px] text-gray-400 dark:text-gray-600 truncate leading-none flex items-center gap-1">
-            <RoleIcon size={9} />
-            {ROLE_LABELS[profile.role]}
-          </p>
-        </div>
-        <Settings size={13} className="text-gray-400 dark:text-gray-600 group-hover:text-gray-600 dark:group-hover:text-gray-400 transition shrink-0" />
+        <LogOut size={14} strokeWidth={1.75} />
+        <span>Cerrar sesión</span>
       </button>
     </div>
   )
