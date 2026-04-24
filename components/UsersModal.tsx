@@ -149,43 +149,50 @@ export default function UsersModal({ onClose }: Props) {
                     <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">{user.email}</p>
                   </div>
 
-                  {/* Actions — only for super_admin, not on own account */}
-                  {!isMe(user.id) && myProfile?.role === 'super_admin' && (
-                    <div className="flex items-center gap-1 shrink-0">
-                      {/* Role switcher */}
-                      {user.role !== 'super_admin' && (
-                        <select
-                          value={user.role}
-                          disabled={saving === user.id}
-                          onChange={e => changeRole(user.id, e.target.value as Profile['role'])}
-                          className="text-[11px] bg-gray-50 dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] rounded-lg px-2 py-1.5 text-gray-600 dark:text-gray-400 focus:outline-none focus:ring-1 focus:ring-violet-500/30 transition cursor-pointer"
-                        >
-                          <option value="editor">Editor</option>
-                          <option value="reader">Lector</option>
-                        </select>
-                      )}
+                  {/* Actions */}
+                  {!isMe(user.id) && user.role !== 'super_admin' && (() => {
+                    const isSuperAdmin = myProfile?.role === 'super_admin'
+                    const isEditor     = myProfile?.role === 'editor'
+                    // Editor can only promote readers → editor; super_admin can change any non-super role
+                    const canChangeRole = isSuperAdmin || (isEditor && user.role === 'reader')
+                    if (!canChangeRole && !isSuperAdmin) return null
+                    return (
+                      <div className="flex items-center gap-1 shrink-0">
+                        {canChangeRole && (
+                          <select
+                            value={user.role}
+                            disabled={saving === user.id}
+                            onChange={e => changeRole(user.id, e.target.value as Profile['role'])}
+                            className="text-[11px] bg-gray-50 dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] rounded-lg px-2 py-1.5 text-gray-600 dark:text-gray-400 focus:outline-none focus:ring-1 focus:ring-violet-500/30 transition cursor-pointer"
+                          >
+                            <option value="editor">Editor</option>
+                            <option value="reader">Lector</option>
+                          </select>
+                        )}
 
-                      {/* Deactivate/Activate */}
-                      <button
-                        onClick={() => toggleActive(user.id, user.active)}
-                        disabled={saving === user.id}
-                        title={user.active ? 'Desactivar acceso' : 'Reactivar acceso'}
-                        className="p-1.5 rounded-lg text-gray-400 hover:text-amber-500 hover:bg-amber-500/10 disabled:opacity-40 transition"
-                      >
-                        <Ban size={13} />
-                      </button>
-
-                      {/* Delete */}
-                      <button
-                        onClick={() => deleteUser(user.id)}
-                        disabled={saving === user.id}
-                        title="Eliminar usuario"
-                        className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-500/10 disabled:opacity-40 transition"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  )}
+                        {isSuperAdmin && (
+                          <>
+                            <button
+                              onClick={() => toggleActive(user.id, user.active)}
+                              disabled={saving === user.id}
+                              title={user.active ? 'Desactivar acceso' : 'Reactivar acceso'}
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-amber-500 hover:bg-amber-500/10 disabled:opacity-40 transition"
+                            >
+                              <Ban size={13} />
+                            </button>
+                            <button
+                              onClick={() => deleteUser(user.id)}
+                              disabled={saving === user.id}
+                              title="Eliminar usuario"
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-500/10 disabled:opacity-40 transition"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )
+                  })()}
 
                   {/* Shield icon for super_admin row */}
                   {user.role === 'super_admin' && !isMe(user.id) && (
