@@ -51,6 +51,25 @@ body {
   animation: overdue-pulse 5s ease-in-out infinite;
 }
 
+/* ── Login page inputs ───────────────────────────────── */
+.login-input {
+  background-color: #1c1c1c;
+  border: 1px solid #2e2e2e;
+  color: #f3f4f6;
+  caret-color: #f3f4f6;
+}
+.login-input:focus {
+  border-color: rgba(139, 92, 246, 0.6);
+}
+/* Override Chrome/Edge autofill blue background */
+.login-input:-webkit-autofill,
+.login-input:-webkit-autofill:hover,
+.login-input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #1c1c1c inset !important;
+  -webkit-text-fill-color: #f3f4f6 !important;
+  caret-color: #f3f4f6;
+}
+
 /* ── Premium modal step spinner ──────────────────────── */
 @keyframes spin-step {
   to { transform: rotate(360deg); }
