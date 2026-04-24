@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Plus, Trash2, ChevronRight, X, Globe, AlertTriangle, CheckCircle2, Zap, RefreshCw, ExternalLink, Pencil, Check } from 'lucide-react'
+import { useAuth } from '@/contexts/AuthContext'
 import type { OnboardingClient, Platform, BillingType } from '@/lib/onboarding'
 import {
   CHECKLIST, TRACKING_CHECKLIST, getRelevantItems,
@@ -67,13 +68,14 @@ function clientOverdueInfo(client: OnboardingClient) {
 }
 
 function ClientCard({
-  client, onView, onDelete, deleteConfirm, setDeleteConfirm,
+  client, onView, onDelete, deleteConfirm, setDeleteConfirm, canDelete,
 }: {
   client: OnboardingClient
   onView: () => void
   onDelete: () => void
   deleteConfirm: boolean
   setDeleteConfirm: (v: boolean) => void
+  canDelete: boolean
 }) {
   const accesos  = checklistProgress(client.platform, client.checklist)
   const tracking = trackingProgress(client.checklist)
@@ -136,7 +138,7 @@ function ClientCard({
           Ver detalle <ChevronRight size={12} />
         </button>
 
-        {deleteConfirm ? (
+        {canDelete && (deleteConfirm ? (
           <div className="flex items-center gap-1">
             <button onClick={onDelete} className="px-2.5 py-2 rounded-xl bg-rose-600 text-white text-xs font-bold hover:bg-rose-700 transition">
               Eliminar
@@ -153,7 +155,7 @@ function ClientCard({
           >
             <Trash2 size={14} />
           </button>
-        )}
+        ))}
       </div>
     </div>
   )
@@ -477,6 +479,7 @@ function ClientDrawer({ client, onClose, onUpdate }: {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function OnboardingPage() {
+  const { canEdit } = useAuth()
   const [clients,       setClients]       = useState<OnboardingClient[]>([])
   const [loading,       setLoading]       = useState(true)
   const [showNew,       setShowNew]       = useState(false)
@@ -539,12 +542,14 @@ export default function OnboardingPage() {
             </div>
             <p className="text-xs text-gray-500 ml-9">Gestión técnica de clientes nuevos · Paid Media</p>
           </div>
-          <button
-            onClick={() => setShowNew(true)}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-blue-700 transition shrink-0"
-          >
-            <Plus size={14} /> Cargar nuevo cliente
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => setShowNew(true)}
+              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-blue-700 transition shrink-0"
+            >
+              <Plus size={14} /> Cargar nuevo cliente
+            </button>
+          )}
         </div>
 
         {loading && (
@@ -560,12 +565,14 @@ export default function OnboardingPage() {
             </div>
             <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Sin clientes en onboarding</p>
             <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">Cargá el primer cliente para comenzar</p>
-            <button
-              onClick={() => setShowNew(true)}
-              className="flex items-center gap-1.5 bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-blue-700 transition"
-            >
-              <Plus size={13} /> Cargar cliente
-            </button>
+            {canEdit && (
+              <button
+                onClick={() => setShowNew(true)}
+                className="flex items-center gap-1.5 bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-blue-700 transition"
+              >
+                <Plus size={13} /> Cargar cliente
+              </button>
+            )}
           </div>
         )}
 
@@ -579,6 +586,7 @@ export default function OnboardingPage() {
                 onDelete={() => deleteClient(c.id)}
                 deleteConfirm={deleteConfirm === c.id}
                 setDeleteConfirm={v => setDeleteConfirm(v ? c.id : null)}
+                canDelete={canEdit}
               />
             ))}
           </div>

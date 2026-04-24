@@ -15,7 +15,7 @@ export default function WelcomeToast() {
     sessionStorage.setItem(key, '1')
     setShown(true)
     setVisible(true)
-    const t = setTimeout(() => setVisible(false), 4000)
+    const t = setTimeout(() => setVisible(false), 3000)
     return () => clearTimeout(t)
   }, [profile, shown])
 

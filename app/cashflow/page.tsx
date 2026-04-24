@@ -764,13 +764,15 @@ export default function CashflowPage() {
                   <span className="text-[9px] font-semibold text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-[#2a2a2a] px-1 py-0.5 rounded shrink-0">PAUSA</span>
                 )}
               </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); deleteClient(client, source) }}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/row:opacity-100 text-gray-400 hover:text-rose-500 hover:bg-rose-500/10 transition-all"
-                title="Eliminar cliente"
-              >
-                <Trash2 size={11} />
-              </button>
+              {canEdit && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); deleteClient(client, source) }}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/row:opacity-100 text-gray-400 hover:text-rose-500 hover:bg-rose-500/10 transition-all"
+                  title="Eliminar cliente"
+                >
+                  <Trash2 size={11} />
+                </button>
+              )}
             </div>
           )
         })}
