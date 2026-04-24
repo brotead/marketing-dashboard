@@ -210,7 +210,7 @@ function LoginInner() {
                 onChange={e => setEmail(e.target.value)}
                 placeholder="tu@email.com"
                 required
-                className="w-full pl-9 pr-4 py-2.5 bg-white/8 border border-white/10 rounded-xl text-sm text-white placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500/50 transition"
+                className="login-input w-full pl-9 pr-4 py-2.5 rounded-xl text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500/40 focus:border-violet-500/60 transition"
               />
             </div>
             <div className="relative">
@@ -221,7 +221,7 @@ function LoginInner() {
                 onChange={e => setPassword(e.target.value)}
                 placeholder="Contraseña"
                 required
-                className="w-full pl-9 pr-10 py-2.5 bg-white/8 border border-white/10 rounded-xl text-sm text-white placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500/50 transition"
+                className="login-input w-full pl-9 pr-10 py-2.5 rounded-xl text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500/40 focus:border-violet-500/60 transition"
               />
               <button
                 type="button"
