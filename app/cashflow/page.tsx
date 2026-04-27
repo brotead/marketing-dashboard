@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, Plus, Pencil, AlertTriangle, UserPlus, Clock, Trash2 } from 'lucide-react'
+import { RefreshCw, Plus, Pencil, AlertTriangle, UserPlus, Clock, Trash2, X, Sparkles } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import CampaignRow from '@/components/CampaignRow'
 import dynamic from 'next/dynamic'
@@ -429,6 +429,8 @@ export default function CashflowPage() {
   const [modal, setModal] = useState<ModalState | null>(null)
   const [clientModal, setClientModal] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<{ clientName: string; source: Source } | null>(null)
+  const [newToasts, setNewToasts] = useState<{ id: string; name: string; client: string }[]>([])
+  const [newCampaignIds, setNewCampaignIds] = useState<Set<string>>(new Set())
   const [editingTotal, setEditingTotal] = useState(false)
   const [totalInput, setTotalInput] = useState('')
   const [countdown, setCountdown] = useState(300)
@@ -523,6 +525,100 @@ export default function CashflowPage() {
   }, [year, month])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  // Load "nueva" campaign IDs from localStorage (persist 24h)
+  useEffect(() => {
+    try {
+      const stored: Record<string, number> = JSON.parse(localStorage.getItem('brote_new_campaigns') ?? '{}')
+      const DAY = 24 * 60 * 60 * 1000
+      const now = Date.now()
+      const active = new Set(Object.entries(stored).filter(([, ts]) => now - ts < DAY).map(([id]) => id))
+      setNewCampaignIds(active)
+      const cleaned = Object.fromEntries(Object.entries(stored).filter(([, ts]) => now - ts < DAY))
+      localStorage.setItem('brote_new_campaigns', JSON.stringify(cleaned))
+    } catch { /* silent */ }
+  }, [])
+
+  // Hourly: detect truly new campaigns (any spend, including $0) — never updates existing ones
+  const checkNewCampaigns = useCallback(async () => {
+    try {
+      const [windsorRes, budgetRes] = await Promise.all([
+        fetch(`/api/windsor?year=${year}&month=${month}&force=true`),
+        fetch('/api/budgets'),
+      ])
+      if (!windsorRes.ok) return
+      const windsorJson  = await windsorRes.json()
+      const bs: BudgetEntry[]            = await budgetRes.json()
+      const wCampaigns: CampaignSpend[]  = windsorJson.campaigns ?? []
+
+      const monthBudgets = bs.filter(b => b.year === year && b.month === month)
+
+      // account_id|source → client name (skip pending)
+      const accountToClient = new Map<string, string>()
+      for (const b of monthBudgets) {
+        if (b.account_id === '__pending__') continue
+        accountToClient.set(`${b.account_id}|${b.source}`, b.client_name)
+      }
+
+      // Build keys of campaigns already in our system
+      const existingKeys = new Set<string>()
+      for (const b of monthBudgets) {
+        existingKeys.add(`${b.account_id}|${b.source}|${normName(b.campaign_name)}`)
+      }
+
+      // Detect campaigns in Windsor but not in budgets
+      const toAdd: BudgetEntry[] = []
+      const seen = new Set<string>()
+      for (const wc of wCampaigns) {
+        if (!wc.account_id) continue
+        const acctKey = `${wc.account_id}|${wc.source}`
+        if (!accountToClient.has(acctKey)) continue          // account not linked to any client
+        const wcKey = `${wc.account_id}|${wc.source}|${normName(wc.campaign_name)}`
+        if (existingKeys.has(wcKey) || seen.has(wcKey)) continue  // already exists
+        seen.add(wcKey)
+        const suffix = wc.source === 'facebook' ? 'fb' : 'gg'
+        toAdd.push({
+          campaign_id:   `auto_${suffix}_${wc.account_id.slice(-5)}_${Date.now()}_${toAdd.length}`,
+          campaign_name: wc.campaign_name,
+          client_name:   accountToClient.get(acctKey)!,
+          source:        wc.source as Source,
+          account_id:    wc.account_id,
+          year, month,
+          budget_total:  0,
+          paused:        false,
+        })
+      }
+
+      if (toAdd.length === 0) return
+
+      // Persist to DB — only new entries, never touches existing ones
+      await Promise.all(toAdd.map(e => fetch('/api/budgets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(e),
+      })))
+
+      setBudgets(prev => [...prev, ...toAdd])
+
+      // Mark as new in localStorage (24h badge)
+      const stored: Record<string, number> = JSON.parse(localStorage.getItem('brote_new_campaigns') ?? '{}')
+      const now = Date.now()
+      for (const e of toAdd) stored[e.campaign_id] = now
+      localStorage.setItem('brote_new_campaigns', JSON.stringify(stored))
+      setNewCampaignIds(prev => new Set([...prev, ...toAdd.map(e => e.campaign_id)]))
+
+      // Show toast per new campaign
+      const toasts = toAdd.map(e => ({ id: e.campaign_id, name: e.campaign_name, client: e.client_name }))
+      setNewToasts(prev => [...prev, ...toasts])
+      setTimeout(() => setNewToasts(prev => prev.filter(t => !toasts.some(x => x.id === t.id))), 7000)
+    } catch { /* silent — background process */ }
+  }, [year, month])
+
+  // Run hourly in background
+  useEffect(() => {
+    const id = setInterval(checkNewCampaigns, 60 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [checkNewCampaigns])
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -1055,6 +1151,7 @@ export default function CashflowPage() {
                       key={b.campaign_id}
                       budget={b}
                       cashflow={cf}
+                      isNew={newCampaignIds.has(b.campaign_id)}
                       onEdit={() => setModal({ entry: b, clientName: b.client_name, accountId: b.account_id, source: b.source as Source })}
                       onDelete={() => handleDelete(b.campaign_id)}
                       onPause={() => handlePause(b)}
@@ -1160,6 +1257,33 @@ export default function CashflowPage() {
           onSave={handleSaveClient}
           onClose={() => setClientModal(false)}
         />
+      )}
+
+      {/* New campaign toasts — bottom right, auto-dismiss 7s */}
+      {newToasts.length > 0 && (
+        <div className="fixed bottom-6 right-6 z-[100] flex flex-col gap-2 items-end pointer-events-none">
+          {newToasts.map(t => (
+            <div
+              key={t.id}
+              className="pointer-events-auto bg-[#0f0f0f] border border-emerald-500/25 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-start gap-3 w-[290px] animate-in slide-in-from-right-4 fade-in duration-300"
+            >
+              <div className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 mt-1.5" />
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-semibold text-emerald-400 mb-0.5 flex items-center gap-1">
+                  <Sparkles size={10} /> Nueva campaña detectada
+                </p>
+                <p className="text-sm font-bold text-white truncate">{t.name}</p>
+                <p className="text-xs text-gray-400">{t.client}</p>
+              </div>
+              <button
+                onClick={() => setNewToasts(prev => prev.filter(x => x.id !== t.id))}
+                className="text-gray-500 hover:text-gray-300 transition shrink-0 mt-0.5"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )
