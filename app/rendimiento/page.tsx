@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { RefreshCw, Plus } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import PacingCard from '@/components/PacingCard'
@@ -115,7 +115,7 @@ export default function RendimientoPage() {
     return Math.max(0, current.followers_count - baseline)
   }
 
-  const getAutoValue = (goal: GoalEntry): { value: number | null; source: string | null } => {
+  const getAutoValue = useCallback((goal: GoalEntry): { value: number | null; source: string | null } => {
     if (goal.kpi === 'conversiones') {
       const v = getGoogleConversions(goal.client_name)
       return { value: v, source: 'Google Ads' }
@@ -129,16 +129,19 @@ export default function RendimientoPage() {
       return { value: v, source: v !== null ? 'Windsor IG' : null }
     }
     return { value: null, source: null }
-  }
+  }, [budgets, igFollowers, year, month]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const currentGoals = goals.filter((g) => g.year === year && g.month === month)
+  const currentGoals = useMemo(
+    () => goals.filter((g) => g.year === year && g.month === month),
+    [goals, year, month]
+  )
 
-  const allClients = Array.from(new Set([
+  const allClients = useMemo(() => Array.from(new Set([
     ...currentGoals.map((g) => g.client_name),
     ...budgets
       .filter((b) => b.year === year && b.month === month)
       .map((b) => b.client_name),
-  ])).sort()
+  ])).sort(), [currentGoals, budgets, year, month])
 
   const handleSaveGoal = async (entry: GoalEntry) => {
     await fetch('/api/goals', {

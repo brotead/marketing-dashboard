@@ -1,13 +1,21 @@
 'use client'
 
-import { usePathname } from 'next/navigation'
+import { useEffect } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 import Sidebar from './Sidebar'
 
 const NO_SHELL_PATHS = ['/login', '/auth']
+const NAV_ROUTES = ['/dashboard', '/cashflow', '/rendimiento', '/audit', '/onboarding']
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const noShell = NO_SHELL_PATHS.some(p => pathname.startsWith(p))
+  const router   = useRouter()
+  const noShell  = NO_SHELL_PATHS.some(p => pathname.startsWith(p))
+
+  // Prefetch all nav routes on mount so navigation is instant
+  useEffect(() => {
+    NAV_ROUTES.forEach(r => router.prefetch(r))
+  }, [router])
 
   if (noShell) {
     return <>{children}</>

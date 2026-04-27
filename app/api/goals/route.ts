@@ -4,7 +4,7 @@ import { getGoals, upsertGoal, removeGoal } from '@/lib/storage'
 export async function GET() {
   const data = await getGoals()
   return NextResponse.json(data, {
-    headers: { 'Cache-Control': 'private, max-age=60, stale-while-revalidate=120' },
+    headers: { 'Cache-Control': 'private, max-age=300, stale-while-revalidate=600' },
   })
 }
 

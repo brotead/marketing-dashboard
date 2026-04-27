@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   RefreshCw, AlertTriangle, CheckCircle2, X,
   Search, Zap, ChevronRight,
@@ -483,8 +483,16 @@ export default function AuditPage() {
   const [data,     setData]     = useState<AuditData | null>(null)
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState<string | null>(null)
-  const [search,   setSearch]   = useState('')
-  const [selected, setSelected] = useState<ClientAudit | null>(null)
+  const [search,        setSearch]        = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [selected,      setSelected]      = useState<ClientAudit | null>(null)
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleSearch = useCallback((v: string) => {
+    setSearch(v)
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+    searchTimer.current = setTimeout(() => setDebouncedSearch(v), 180)
+  }, [])
 
   const load = useCallback(async (force = false) => {
     setLoading(true); setError(null)
@@ -503,12 +511,13 @@ export default function AuditPage() {
   useEffect(() => { load() }, [load])
 
   const results = data?.results ?? []
-  const visible = results.filter(r =>
-    search.trim() === '' || r.client_name.toLowerCase().includes(search.toLowerCase())
-  )
+  const visible = useMemo(() => {
+    const q = debouncedSearch.trim().toLowerCase()
+    return q === '' ? results : results.filter(r => r.client_name.toLowerCase().includes(q))
+  }, [results, debouncedSearch])
 
-  const momMaxCpl    = results.length > 0 ? Math.max(...results.map(r => Math.max(r.cpl, r.mom_cpl, 1))) : 1
-  const momMaxCtr    = results.length > 0 ? Math.max(...results.map(r => Math.max(r.ctr, r.mom_ctr, 0.01))) : 1
+  const momMaxCpl = useMemo(() => results.length > 0 ? Math.max(...results.map(r => Math.max(r.cpl, r.mom_cpl, 1))) : 1, [results])
+  const momMaxCtr = useMemo(() => results.length > 0 ? Math.max(...results.map(r => Math.max(r.ctr, r.mom_ctr, 0.01))) : 1, [results])
   const momByCpl = [...results].sort((a, b) => (b.mom_cpl_change ?? -Infinity) - (a.mom_cpl_change ?? -Infinity))
   const momByCtr = [...results].sort((a, b) => (b.mom_ctr_change ?? -Infinity) - (a.mom_ctr_change ?? -Infinity))
   const fmtD = (s: string) => { const [,m,d] = s.split('-'); return `${d}/${m}` }
@@ -562,7 +571,7 @@ export default function AuditPage() {
             <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
             <input
               type="text" placeholder="Buscar cliente..."
-              value={search} onChange={e => setSearch(e.target.value)}
+              value={search} onChange={e => handleSearch(e.target.value)}
               className="pl-8 pr-3 py-1.5 text-sm bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#333] rounded-lg text-gray-800 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 w-44 shadow-sm dark:shadow-none"
             />
           </div>
