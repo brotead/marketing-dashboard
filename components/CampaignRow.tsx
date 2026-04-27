@@ -7,6 +7,7 @@ import type { BudgetEntry, CashflowResult } from '@/lib/types'
 interface Props {
   budget: BudgetEntry
   cashflow: CashflowResult
+  isNew?: boolean
   onEdit: () => void
   onDelete: () => void
   onPause: () => void
@@ -40,7 +41,7 @@ const DEVIATION_TEXT: Record<CashflowResult['status'], string> = {
   underspending:'text-amber-600 dark:text-amber-500',
 }
 
-const CampaignRow = memo(function CampaignRow({ budget, cashflow, onEdit, onDelete, onPause, onSpendOverride }: Props) {
+const CampaignRow = memo(function CampaignRow({ budget, cashflow, isNew, onEdit, onDelete, onPause, onSpendOverride }: Props) {
   const [editingSpend, setEditingSpend] = useState(false)
   const [spendInput, setSpendInput] = useState('')
 
@@ -79,6 +80,11 @@ const CampaignRow = memo(function CampaignRow({ budget, cashflow, onEdit, onDele
       <div className="flex items-center gap-2 mb-3">
         <span className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[cashflow.status]}`} />
         <p className="flex-1 text-sm font-medium text-gray-800 dark:text-gray-200 truncate min-w-0">{budget.campaign_name}</p>
+        {isNew && (
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-500 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
+            Nueva
+          </span>
+        )}
         {isManualSpend && (
           <span className="text-xs bg-orange-500/15 text-orange-600 dark:text-orange-400 border border-orange-500/30 px-2 py-0.5 rounded-full font-medium shrink-0">
             Gasto manual
