@@ -2,7 +2,6 @@
 
 import { usePathname } from 'next/navigation'
 import Sidebar from './Sidebar'
-import WelcomeToast from './WelcomeToast'
 
 const NO_SHELL_PATHS = ['/login', '/auth']
 
@@ -16,7 +15,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      <WelcomeToast />
       <div className="flex h-screen overflow-hidden">
         <Sidebar />
         <main className="flex-1 min-w-0 overflow-y-auto">
