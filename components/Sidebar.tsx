@@ -137,7 +137,7 @@ export default function Sidebar() {
       {showUsers && <UsersModal onClose={() => setShowUsers(false)} />}
 
       {/* ── Desktop sidebar ── */}
-      <aside className="hidden lg:flex flex-col w-[240px] shrink-0 h-screen sticky top-0 bg-white dark:bg-[#0d0d0d] border-r border-gray-200 dark:border-white/[0.06]">
+      <aside className="hidden lg:flex flex-col w-[240px] shrink-0 h-screen sticky top-0 bg-gray-100 dark:bg-[#0d0d0d] border-r border-gray-200 dark:border-white/[0.06]">
         <div className="px-5 pt-6 pb-5">
           <Link href="/dashboard" className="flex items-center gap-3 group">
             <div className="w-8 h-8 rounded-xl overflow-hidden ring-1 ring-black/[0.08] dark:ring-white/[0.12] group-hover:ring-black/[0.16] dark:group-hover:ring-white/[0.22] transition-all duration-200 shrink-0">
@@ -165,7 +165,7 @@ export default function Sidebar() {
       </aside>
 
       {/* ── Mobile top bar ── */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 h-14 bg-white/95 dark:bg-[#0d0d0d]/95 backdrop-blur-xl border-b border-gray-200 dark:border-white/[0.06] flex items-center justify-between px-4">
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 h-14 bg-gray-100/95 dark:bg-[#0d0d0d]/95 backdrop-blur-xl border-b border-gray-200 dark:border-white/[0.06] flex items-center justify-between px-4">
         <Link href="/dashboard" className="flex items-center gap-2.5 group">
           <div className="w-7 h-7 rounded-xl overflow-hidden ring-1 ring-black/[0.08] dark:ring-white/[0.12]">
             <Image src="/logo.png" alt="Brote AD" width={28} height={28} className="w-full h-full object-cover" />
@@ -186,7 +186,7 @@ export default function Sidebar() {
       )}
 
       <div
-        className={`lg:hidden fixed top-14 left-0 bottom-0 z-50 w-[240px] bg-white dark:bg-[#0d0d0d] border-r border-gray-200 dark:border-white/[0.06] flex flex-col transition-transform duration-200 ${
+        className={`lg:hidden fixed top-14 left-0 bottom-0 z-50 w-[240px] bg-gray-100 dark:bg-[#0d0d0d] border-r border-gray-200 dark:border-white/[0.06] flex flex-col transition-transform duration-200 ${
           drawerOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
