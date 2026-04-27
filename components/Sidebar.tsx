@@ -16,8 +16,8 @@ const links = [
   { href: '/dashboard',   label: 'Dashboard',  icon: LayoutDashboard },
   { href: '/cashflow',    label: 'Cashflow',   icon: BarChart2 },
   { href: '/rendimiento', label: 'Objetivos',  icon: Target },
-  { href: '/audit',       label: 'AD Auditor', icon: ShieldCheck },
-  { href: '/onboarding',  label: 'Onboarding', icon: UserPlus },
+  { href: '/audit',       label: 'Rendimiento', icon: ShieldCheck },
+  { href: '/onboarding',  label: 'Cliente nuevo', icon: UserPlus },
 ]
 
 function NavLinks({ path, onClick }: { path: string; onClick?: () => void }) {
