@@ -28,6 +28,15 @@ export async function removeBudget(campaignId: string, year: number, month: numb
   if (error) throw new Error(error.message)
 }
 
+export async function removeClientAllData(clientName: string, source: string): Promise<void> {
+  const [budgetsResult, goalsResult] = await Promise.all([
+    supabase.from('budgets').delete().eq('client_name', clientName).eq('source', source),
+    supabase.from('goals').delete().eq('client_name', clientName),
+  ])
+  if (budgetsResult.error) throw new Error(budgetsResult.error.message)
+  if (goalsResult.error) throw new Error(goalsResult.error.message)
+}
+
 // ── Goals ──────────────────────────────────────────────────────────────────────
 
 export async function getGoals(): Promise<GoalEntry[]> {

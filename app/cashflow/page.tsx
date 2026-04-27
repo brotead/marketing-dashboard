@@ -428,6 +428,7 @@ export default function CashflowPage() {
   const [selected, setSelected] = useState<Selection | null>(null)
   const [modal, setModal] = useState<ModalState | null>(null)
   const [clientModal, setClientModal] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState<{ clientName: string; source: Source } | null>(null)
   const [editingTotal, setEditingTotal] = useState(false)
   const [totalInput, setTotalInput] = useState('')
   const [countdown, setCountdown] = useState(300)
@@ -677,14 +678,14 @@ export default function CashflowPage() {
   }
 
   const deleteClient = async (clientName: string, source: Source) => {
-    const toDelete = monthBudgets.filter(b => b.client_name === clientName && b.source === source)
-    await Promise.all(toDelete.map(b => fetch('/api/budgets', {
+    await fetch('/api/clients', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ campaign_id: b.campaign_id, year, month }),
-    })))
-    setBudgets(prev => prev.filter(b => !(b.client_name === clientName && b.source === source && b.year === year && b.month === month)))
+      body: JSON.stringify({ client_name: clientName, source }),
+    })
+    setBudgets(prev => prev.filter(b => !(b.client_name === clientName && b.source === source)))
     if (selected?.client === clientName && selected?.source === source) setSelected(null)
+    setDeleteConfirm(null)
   }
 
   const handlePause = async (entry: BudgetEntry) => {
@@ -766,7 +767,7 @@ export default function CashflowPage() {
               </button>
               {canEdit && (
                 <button
-                  onClick={(e) => { e.stopPropagation(); deleteClient(client, source) }}
+                  onClick={(e) => { e.stopPropagation(); setDeleteConfirm({ clientName: client, source }) }}
                   className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/row:opacity-100 text-gray-400 hover:text-rose-500 hover:bg-rose-500/10 transition-all"
                   title="Eliminar cliente"
                 >
@@ -785,6 +786,36 @@ export default function CashflowPage() {
 
   return (
     <div>
+      {/* Delete client confirmation modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setDeleteConfirm(null)}>
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+          <div
+            className="relative bg-white dark:bg-[#161616] border border-gray-200 dark:border-[#2a2a2a] rounded-2xl shadow-2xl p-6 w-full max-w-sm"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-1">¿Eliminar cliente?</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-5">
+              Se eliminará <span className="font-semibold text-gray-700 dark:text-gray-300">{deleteConfirm.clientName}</span> de cashflow, objetivos y todos los registros históricos. Esta acción no se puede deshacer.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="flex-1 py-2 rounded-xl text-xs font-semibold text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-[#252525] hover:bg-gray-200 dark:hover:bg-[#2d2d2d] transition"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => deleteClient(deleteConfirm.clientName, deleteConfirm.source)}
+                className="flex-1 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition"
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
