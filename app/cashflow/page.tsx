@@ -433,7 +433,7 @@ export default function CashflowPage() {
   const [newCampaignIds, setNewCampaignIds] = useState<Set<string>>(new Set())
   const [editingTotal, setEditingTotal] = useState(false)
   const [totalInput, setTotalInput] = useState('')
-  const [countdown, setCountdown] = useState(300)
+  const [countdown, setCountdown] = useState(3600)
 
   const fetchData = useCallback(async (force = false) => {
     setLoading(true)
@@ -625,7 +625,7 @@ export default function CashflowPage() {
       setCountdown(prev => {
         if (prev <= 1) {
           syncCampaigns()
-          return 300
+          return 3600
         }
         return prev - 1
       })
@@ -940,7 +940,7 @@ export default function CashflowPage() {
             {formatCountdown(countdown)}
           </div>
           <button
-            onClick={() => { fetchData(true); setCountdown(300) }}
+            onClick={() => { fetchData(true); setCountdown(3600) }}
             disabled={loading}
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 shadow-sm disabled:opacity-50"
           >
