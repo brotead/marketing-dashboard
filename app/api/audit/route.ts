@@ -1,19 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { runAudit } from '@/lib/audit'
-import { supabase as sb } from '@/lib/supabase'
+import { getBudgets } from '@/lib/storage'
+import { getWorkspaceCtx } from '@/lib/workspace'
 
 export async function GET(req: NextRequest) {
   const force = req.nextUrl.searchParams.get('force') === 'true'
   try {
-    const { data: budgets } = await sb
-      .from('budgets')
-      .select('account_id, client_name')
-      .eq('source', 'facebook')
+    const ctx     = await getWorkspaceCtx()
+    const budgets = await getBudgets(ctx)
 
+    const fbBudgets = budgets.filter(b => b.source === 'facebook')
     const allowedIds  = new Set<string>()
     const clientNames: Record<string, string> = {}
 
-    for (const b of budgets ?? []) {
+    for (const b of fbBudgets) {
       if (b.account_id && b.client_name) {
         allowedIds.add(b.account_id)
         if (!clientNames[b.account_id]) {
