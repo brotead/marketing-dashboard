@@ -12,6 +12,7 @@ export interface Profile {
   role: 'editor' | 'reader' | 'super_admin'
   active: boolean
   role_selected: boolean
+  workspace_id: string | null
   created_at: string
 }
 

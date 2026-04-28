@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import {
   Mail, Lock, Eye, EyeOff, ArrowRight, Pencil, BookOpen,
-  AlertCircle, LayoutDashboard, BarChart2, Target, ShieldCheck, UserPlus,
+  AlertCircle, LayoutDashboard, BarChart2, Target, ShieldCheck, UserPlus, User,
 } from 'lucide-react'
 import { createSupabaseBrowser } from '@/lib/supabase-browser'
 
@@ -188,6 +188,7 @@ function LoginInner() {
   type Step = 'login' | 'role'
   const [step,         setStep]         = useState<Step>('login')
   const [mode,         setMode]         = useState<'signin' | 'signup'>('signin')
+  const [name,         setName]         = useState('')
   const [email,        setEmail]        = useState('')
   const [password,     setPassword]     = useState('')
   const [confirmPw,    setConfirmPw]    = useState('')
@@ -204,10 +205,11 @@ function LoginInner() {
   }, [searchParams]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function switchMode(next: 'signin' | 'signup') {
-    setMode(next); setError(''); setErrorHint(undefined); setPassword(''); setConfirmPw('')
+    setMode(next); setError(''); setErrorHint(undefined); setPassword(''); setConfirmPw(''); setName('')
   }
 
   function validate(): string | null {
+    if (mode === 'signup' && !name.trim()) return 'Ingresá tu nombre.'
     if (!email.trim()) return 'Ingresá tu email.'
     if (!password)     return 'Ingresá tu contraseña.'
     if (mode === 'signup') {
@@ -239,7 +241,11 @@ function LoginInner() {
       router.push('/dashboard')
 
     } else {
-      const { data, error } = await supabase.auth.signUp({ email, password })
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { full_name: name.trim() } },
+      })
       if (error) {
         const m = mapAuthError(error.message, 'signup')
         setError(m.text); setErrorHint(m.hint); setLoading(false); return
@@ -248,8 +254,15 @@ function LoginInner() {
       if (!data.user || data.user.identities?.length === 0) {
         setError('Este email ya tiene una cuenta.'); setErrorHint('switch_to_signin'); setLoading(false); return
       }
-      setUserId(data.user.id)
-      setStep('role')
+      // Check if the trigger auto-created workspace (role_selected=true → skip role picker)
+      const { data: prof } = await supabase
+        .from('profiles').select('role_selected').eq('id', data.user.id).single()
+      if (prof?.role_selected) {
+        router.push('/dashboard')
+      } else {
+        setUserId(data.user.id)
+        setStep('role')
+      }
       setLoading(false)
     }
   }
@@ -334,6 +347,14 @@ function LoginInner() {
             )}
 
             <form onSubmit={handleSubmit} className="space-y-3">
+              {mode === 'signup' && (
+                <div className="relative">
+                  <User size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                  <input type="text" value={name} onChange={e => setName(e.target.value)}
+                    placeholder="Tu nombre" required autoComplete="name"
+                    className="login-input w-full pl-9 pr-4 py-2.5 rounded-xl text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500/40 transition" />
+                </div>
+              )}
               <div className="relative">
                 <Mail size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
                 <input type="email" value={email} onChange={e => setEmail(e.target.value)}

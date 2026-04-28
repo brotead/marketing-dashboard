@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { RefreshCw, AlertCircle, Plus } from 'lucide-react'
+import { RefreshCw, AlertCircle, Plus, Sparkles } from 'lucide-react'
 import DashboardCard from '@/components/DashboardCard'
 import NewClientModal from '@/components/NewClientModal'
 import type { AccountData, BudgetEntry } from '@/lib/types'
@@ -24,7 +24,7 @@ function currency(n: number) {
 export default function DashboardPage() {
   const today  = new Date()
   const router = useRouter()
-  const { canEdit } = useAuth()
+  const { canEdit, profile } = useAuth()
   const [year,     setYear]     = useState(today.getFullYear())
   const [month,    setMonth]    = useState(today.getMonth() + 1)
   const [accounts, setAccounts] = useState<AccountData[]>([])
@@ -320,7 +320,29 @@ export default function DashboardPage() {
         </>
       )}
 
-      {!loading && allClients.length === 0 && (
+      {/* Empty workspace state — user has never added any client */}
+      {!loading && budgets.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-24 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-600/20 to-blue-600/20 border border-violet-500/20 flex items-center justify-center mb-6">
+            <Sparkles size={28} className="text-violet-400" />
+          </div>
+          <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">
+            Bienvenido{profile?.name ? `, ${profile.name}` : ' a Brote AD'}
+          </h2>
+          <p className="text-gray-500 dark:text-gray-400 text-sm mb-8 max-w-sm">
+            Todavía no tenés clientes cargados. Creá tu primer cliente para empezar a ver el dashboard con datos reales.
+          </p>
+          <button
+            onClick={() => router.push('/cashflow')}
+            className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-700 hover:to-blue-700 text-white px-6 py-3 rounded-xl text-sm font-bold transition-all shadow-lg shadow-violet-500/25"
+          >
+            <Plus size={16} /> Crear primer cliente
+          </button>
+        </div>
+      )}
+
+      {/* No clients for selected period, but workspace has data */}
+      {!loading && budgets.length > 0 && allClients.length === 0 && (
         <div className="flex items-center justify-center h-48 text-gray-500 text-sm">
           No hay clientes configurados para este período
         </div>

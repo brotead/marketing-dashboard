@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server'
 import { fetchFatigueAds } from '@/lib/windsor'
 import { getBudgets } from '@/lib/storage'
+import { getWorkspaceCtx } from '@/lib/workspace'
 
 export async function GET() {
   try {
-    // Get configured Meta Ads account IDs from the current month's budgets
-    const today = new Date()
-    const budgets = await getBudgets()
+    const ctx    = await getWorkspaceCtx()
+    const today  = new Date()
+    const budgets = await getBudgets(ctx)
     const currentMonth = budgets.filter(
       b => b.year === today.getFullYear() && b.month === today.getMonth() + 1 && b.source === 'facebook'
     )

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { X, Users, Shield, BookOpen, Pencil, Trash2, Ban, RefreshCw, Crown } from 'lucide-react'
+import { X, Users, Shield, BookOpen, Pencil, Trash2, Ban, RefreshCw, Crown, KeyRound, Eye, EyeOff, Check } from 'lucide-react'
 import { createSupabaseBrowser } from '@/lib/supabase-browser'
 import type { Profile } from '@/contexts/AuthContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -53,9 +53,17 @@ export default function UsersModal({ onClose }: Props) {
   const { profile: myProfile } = useAuth()
   const supabase = createSupabaseBrowser()
 
-  const [users,   setUsers]   = useState<Profile[]>([])
-  const [loading, setLoading] = useState(true)
-  const [saving,  setSaving]  = useState<string | null>(null)
+  const [users,        setUsers]        = useState<Profile[]>([])
+  const [loading,      setLoading]      = useState(true)
+  const [saving,       setSaving]       = useState<string | null>(null)
+  const [changingPwId, setChangingPwId] = useState<string | null>(null)
+  const [newPw,        setNewPw]        = useState('')
+  const [confirmPw,    setConfirmPw]    = useState('')
+  const [showNewPw,    setShowNewPw]    = useState(false)
+  const [showConfirm,  setShowConfirm]  = useState(false)
+  const [pwSaving,     setPwSaving]     = useState(false)
+  const [pwError,      setPwError]      = useState('')
+  const [pwSuccess,    setPwSuccess]    = useState(false)
 
   const fetchUsers = useCallback(async () => {
     setLoading(true)
@@ -92,6 +100,22 @@ export default function UsersModal({ onClose }: Props) {
   }
 
   const isMe = (uid: string) => uid === myProfile?.id
+
+  function openChangePw(uid: string) {
+    setChangingPwId(uid); setNewPw(''); setConfirmPw('')
+    setShowNewPw(false); setShowConfirm(false); setPwError(''); setPwSuccess(false)
+  }
+
+  async function submitChangePassword() {
+    if (newPw.length < 6) { setPwError('Mínimo 6 caracteres.'); return }
+    if (newPw !== confirmPw) { setPwError('Las contraseñas no coinciden.'); return }
+    setPwSaving(true); setPwError('')
+    const { error } = await supabase.auth.updateUser({ password: newPw })
+    setPwSaving(false)
+    if (error) { setPwError(error.message); return }
+    setPwSuccess(true)
+    setTimeout(() => { setChangingPwId(null); setNewPw(''); setConfirmPw(''); setPwSuccess(false) }, 1500)
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
@@ -130,73 +154,149 @@ export default function UsersModal({ onClose }: Props) {
           ) : (
             <div className="divide-y divide-gray-100 dark:divide-[#1a1a1a]">
               {users.map(user => (
-                <div key={user.id} className={`flex items-center gap-3 px-6 py-4 ${!user.active ? 'opacity-50' : ''}`}>
-                  <Avatar profile={user} />
+                <div key={user.id} className={`${!user.active ? 'opacity-50' : ''}`}>
+                  <div className="flex items-center gap-3 px-6 py-4">
+                    <Avatar profile={user} />
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                      <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate">
-                        {user.name ?? user.email.split('@')[0]}
-                      </p>
-                      {isMe(user.id) && (
-                        <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">(vos)</span>
-                      )}
-                      <RoleBadge role={user.role} />
-                      {!user.active && (
-                        <span className="text-[10px] text-red-400 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded-lg font-medium">Desactivado</span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">{user.email}</p>
-                  </div>
-
-                  {/* Actions */}
-                  {!isMe(user.id) && user.role !== 'super_admin' && (() => {
-                    const isSuperAdmin = myProfile?.role === 'super_admin'
-                    const isEditor     = myProfile?.role === 'editor'
-                    // Editor can only promote readers → editor; super_admin can change any non-super role
-                    const canChangeRole = isSuperAdmin || (isEditor && user.role === 'reader')
-                    if (!canChangeRole && !isSuperAdmin) return null
-                    return (
-                      <div className="flex items-center gap-1 shrink-0">
-                        {canChangeRole && (
-                          <select
-                            value={user.role}
-                            disabled={saving === user.id}
-                            onChange={e => changeRole(user.id, e.target.value as Profile['role'])}
-                            className="text-[11px] bg-gray-50 dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] rounded-lg px-2 py-1.5 text-gray-600 dark:text-gray-400 focus:outline-none focus:ring-1 focus:ring-violet-500/30 transition cursor-pointer"
-                          >
-                            <option value="editor">Editor</option>
-                            <option value="reader">Lector</option>
-                          </select>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                        <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate">
+                          {user.name ?? user.email.split('@')[0]}
+                        </p>
+                        {isMe(user.id) && (
+                          <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">(vos)</span>
                         )}
-
-                        {isSuperAdmin && (
-                          <>
-                            <button
-                              onClick={() => toggleActive(user.id, user.active)}
-                              disabled={saving === user.id}
-                              title={user.active ? 'Desactivar acceso' : 'Reactivar acceso'}
-                              className="p-1.5 rounded-lg text-gray-400 hover:text-amber-500 hover:bg-amber-500/10 disabled:opacity-40 transition"
-                            >
-                              <Ban size={13} />
-                            </button>
-                            <button
-                              onClick={() => deleteUser(user.id)}
-                              disabled={saving === user.id}
-                              title="Eliminar usuario"
-                              className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-500/10 disabled:opacity-40 transition"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </>
+                        <RoleBadge role={user.role} />
+                        {!user.active && (
+                          <span className="text-[10px] text-red-400 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded-lg font-medium">Desactivado</span>
                         )}
                       </div>
-                    )
-                  })()}
+                      <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">{user.email}</p>
+                    </div>
 
-                  {/* Shield icon for super_admin row */}
-                  {user.role === 'super_admin' && !isMe(user.id) && (
-                    <Shield size={14} className="text-violet-400 shrink-0" />
+                    {/* Change password button — only own row */}
+                    {isMe(user.id) && (
+                      <button
+                        onClick={() => changingPwId === user.id ? setChangingPwId(null) : openChangePw(user.id)}
+                        title="Cambiar contraseña"
+                        className={`p-1.5 rounded-lg transition shrink-0 ${
+                          changingPwId === user.id
+                            ? 'text-violet-400 bg-violet-500/10'
+                            : 'text-gray-400 hover:text-violet-400 hover:bg-violet-500/10'
+                        }`}
+                      >
+                        <KeyRound size={13} />
+                      </button>
+                    )}
+
+                    {/* Actions — other users */}
+                    {!isMe(user.id) && user.role !== 'super_admin' && (() => {
+                      const isSuperAdmin = myProfile?.role === 'super_admin'
+                      const isEditor     = myProfile?.role === 'editor'
+                      const canChangeRole = isSuperAdmin || (isEditor && user.role === 'reader')
+                      if (!canChangeRole && !isSuperAdmin) return null
+                      return (
+                        <div className="flex items-center gap-1 shrink-0">
+                          {canChangeRole && (
+                            <select
+                              value={user.role}
+                              disabled={saving === user.id}
+                              onChange={e => changeRole(user.id, e.target.value as Profile['role'])}
+                              className="text-[11px] bg-gray-50 dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] rounded-lg px-2 py-1.5 text-gray-600 dark:text-gray-400 focus:outline-none focus:ring-1 focus:ring-violet-500/30 transition cursor-pointer"
+                            >
+                              <option value="editor">Editor</option>
+                              <option value="reader">Lector</option>
+                            </select>
+                          )}
+                          {isSuperAdmin && (
+                            <>
+                              <button
+                                onClick={() => toggleActive(user.id, user.active)}
+                                disabled={saving === user.id}
+                                title={user.active ? 'Desactivar acceso' : 'Reactivar acceso'}
+                                className="p-1.5 rounded-lg text-gray-400 hover:text-amber-500 hover:bg-amber-500/10 disabled:opacity-40 transition"
+                              >
+                                <Ban size={13} />
+                              </button>
+                              <button
+                                onClick={() => deleteUser(user.id)}
+                                disabled={saving === user.id}
+                                title="Eliminar usuario"
+                                className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-500/10 disabled:opacity-40 transition"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )
+                    })()}
+
+                    {/* Shield icon for super_admin row (not own) */}
+                    {user.role === 'super_admin' && !isMe(user.id) && (
+                      <Shield size={14} className="text-violet-400 shrink-0" />
+                    )}
+                  </div>
+
+                  {/* Inline password change form */}
+                  {changingPwId === user.id && (
+                    <div className="mx-6 mb-4 p-4 bg-gray-50 dark:bg-[#161616] border border-gray-200 dark:border-[#252525] rounded-xl">
+                      <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-3">Cambiar contraseña</p>
+                      <div className="space-y-2">
+                        <div className="relative">
+                          <input
+                            type={showNewPw ? 'text' : 'password'}
+                            value={newPw}
+                            onChange={e => { setNewPw(e.target.value); setPwError('') }}
+                            placeholder="Nueva contraseña (mín. 6 caracteres)"
+                            className="w-full pr-9 pl-3 py-2 text-xs bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] rounded-lg text-gray-700 dark:text-gray-300 placeholder:text-gray-400 dark:placeholder:text-gray-600 focus:outline-none focus:ring-1 focus:ring-violet-500/40 transition"
+                          />
+                          <button type="button" onClick={() => setShowNewPw(v => !v)}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition">
+                            {showNewPw ? <EyeOff size={12} /> : <Eye size={12} />}
+                          </button>
+                        </div>
+                        <div className="relative">
+                          <input
+                            type={showConfirm ? 'text' : 'password'}
+                            value={confirmPw}
+                            onChange={e => { setConfirmPw(e.target.value); setPwError('') }}
+                            placeholder="Repetir nueva contraseña"
+                            onKeyDown={e => e.key === 'Enter' && submitChangePassword()}
+                            className="w-full pr-9 pl-3 py-2 text-xs bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] rounded-lg text-gray-700 dark:text-gray-300 placeholder:text-gray-400 dark:placeholder:text-gray-600 focus:outline-none focus:ring-1 focus:ring-violet-500/40 transition"
+                          />
+                          <button type="button" onClick={() => setShowConfirm(v => !v)}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition">
+                            {showConfirm ? <EyeOff size={12} /> : <Eye size={12} />}
+                          </button>
+                        </div>
+                      </div>
+
+                      {pwError && (
+                        <p className="mt-2 text-[11px] text-red-400">{pwError}</p>
+                      )}
+                      {pwSuccess && (
+                        <p className="mt-2 text-[11px] text-emerald-400 flex items-center gap-1">
+                          <Check size={11} /> Contraseña actualizada correctamente.
+                        </p>
+                      )}
+
+                      <div className="flex items-center gap-2 mt-3">
+                        <button
+                          onClick={submitChangePassword}
+                          disabled={pwSaving || !newPw || !confirmPw}
+                          className="flex-1 py-1.5 text-xs font-semibold bg-gradient-to-r from-violet-600 to-blue-600 text-white rounded-lg hover:from-violet-700 hover:to-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                        >
+                          {pwSaving ? 'Guardando…' : 'Guardar contraseña'}
+                        </button>
+                        <button
+                          onClick={() => setChangingPwId(null)}
+                          className="px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-[#2a2a2a] rounded-lg hover:bg-gray-100 dark:hover:bg-[#1e1e1e] transition"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
               ))}
