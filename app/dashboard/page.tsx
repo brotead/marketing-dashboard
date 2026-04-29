@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { RefreshCw, AlertCircle, Plus, Sparkles } from 'lucide-react'
+import { RefreshCw, AlertCircle, Plus } from 'lucide-react'
 import DashboardCard from '@/components/DashboardCard'
 import NewClientModal from '@/components/NewClientModal'
 import type { AccountData, BudgetEntry } from '@/lib/types'
@@ -322,15 +322,9 @@ export default function DashboardPage() {
 
       {/* Empty workspace state — user has never added any client */}
       {!loading && budgets.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-24 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-600/20 to-blue-600/20 border border-violet-500/20 flex items-center justify-center mb-6">
-            <Sparkles size={28} className="text-violet-400" />
-          </div>
-          <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">
-            Bienvenido{profile?.name ? `, ${profile.name}` : ' a Brote AD'}
-          </h2>
-          <p className="text-gray-500 dark:text-gray-400 text-sm max-w-sm">
-            Todavía no tenés clientes cargados. Usá el botón <span className="text-gray-700 dark:text-gray-300 font-semibold">Nuevo cliente</span> para empezar.
+        <div className="flex items-center justify-center py-24">
+          <p className="text-gray-400 dark:text-gray-500 text-sm">
+            No hay clientes cargados. Usá el botón <span className="text-gray-600 dark:text-gray-300 font-semibold">Nuevo cliente</span> para empezar.
           </p>
         </div>
       )}
