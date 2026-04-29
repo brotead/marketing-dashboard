@@ -57,7 +57,7 @@ export default function DashboardPage() {
     try {
       const [windsorRes, budgetRes] = await Promise.all([
         fetch(`/api/windsor?year=${year}&month=${month}`),
-        fetch('/api/budgets'),
+        fetch('/api/budgets', { cache: 'no-store' }),
       ])
       if (!windsorRes.ok) throw new Error('Error al conectar con Windsor')
       const windsorJson = await windsorRes.json()
