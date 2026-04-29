@@ -329,15 +329,9 @@ export default function DashboardPage() {
           <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">
             Bienvenido{profile?.name ? `, ${profile.name}` : ' a Brote AD'}
           </h2>
-          <p className="text-gray-500 dark:text-gray-400 text-sm mb-8 max-w-sm">
-            Todavía no tenés clientes cargados. Creá tu primer cliente para empezar a ver el dashboard con datos reales.
+          <p className="text-gray-500 dark:text-gray-400 text-sm max-w-sm">
+            Todavía no tenés clientes cargados. Usá el botón <span className="text-gray-700 dark:text-gray-300 font-semibold">Nuevo cliente</span> para empezar.
           </p>
-          <button
-            onClick={() => router.push('/cashflow')}
-            className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-700 hover:to-blue-700 text-white px-6 py-3 rounded-xl text-sm font-bold transition-all shadow-lg shadow-violet-500/25"
-          >
-            <Plus size={16} /> Crear primer cliente
-          </button>
         </div>
       )}
 

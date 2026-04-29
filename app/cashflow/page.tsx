@@ -924,15 +924,6 @@ export default function CashflowPage() {
                     <span className="w-2 h-2 rounded-full bg-[#1877F2]" />
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Meta Ads</p>
                   </div>
-                  {canEdit && (
-                    <button
-                      onClick={() => setClientModal(true)}
-                      className="text-gray-500 hover:text-blue-400 transition"
-                      title="Agregar cliente Meta"
-                    >
-                      <UserPlus size={13} />
-                    </button>
-                  )}
                 </div>
                 {metaClients.length > 0
                   ? <ClientList source="facebook" clients={metaClients} color="bg-[#1877F2]" />
@@ -950,15 +941,6 @@ export default function CashflowPage() {
                     <span className="w-2 h-2 rounded-full bg-[#4285F4]" />
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Google Ads</p>
                   </div>
-                  {canEdit && (
-                    <button
-                      onClick={() => setClientModal(true)}
-                      className="text-gray-500 hover:text-blue-400 transition"
-                      title="Agregar cliente Google"
-                    >
-                      <UserPlus size={13} />
-                    </button>
-                  )}
                 </div>
                 {googleClients.length > 0
                   ? <ClientList source="google" clients={googleClients} color="bg-[#4285F4]" />
