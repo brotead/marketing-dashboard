@@ -1,12 +1,11 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, Plus, Pencil, AlertTriangle, UserPlus, Clock, Trash2, X, Sparkles } from 'lucide-react'
+import { RefreshCw, Plus, Pencil, AlertTriangle, Clock, Trash2, X, Sparkles } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import CampaignRow from '@/components/CampaignRow'
 import dynamic from 'next/dynamic'
 const CampaignFormModal = dynamic(() => import('@/components/CampaignFormModal'), { ssr: false })
-const NewClientModal    = dynamic(() => import('@/components/NewClientModal'),    { ssr: false })
 import type { AccountData, BudgetEntry, CampaignSpend } from '@/lib/types'
 import { calcCashflow } from '@/lib/calculations'
 
@@ -427,7 +426,7 @@ export default function CashflowPage() {
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<Selection | null>(null)
   const [modal, setModal] = useState<ModalState | null>(null)
-  const [clientModal, setClientModal] = useState(false)
+
   const [deleteConfirm, setDeleteConfirm] = useState<{ clientName: string; source: Source } | null>(null)
   const [newToasts, setNewToasts] = useState<{ id: string; name: string; client: string }[]>([])
   const [newCampaignIds, setNewCampaignIds] = useState<Set<string>>(new Set())
@@ -711,7 +710,6 @@ export default function CashflowPage() {
       return [...prev, entry]
     })
     setModal(null)
-    setClientModal(false)
   }
 
 
@@ -1186,13 +1184,6 @@ export default function CashflowPage() {
         />
       )}
 
-      {/* Add client modal */}
-      {clientModal && (
-        <NewClientModal
-          onClose={() => setClientModal(false)}
-          onCreated={() => { setClientModal(false); fetchData(true) }}
-        />
-      )}
 
       {/* New campaign toasts — bottom right, auto-dismiss 7s */}
       {newToasts.length > 0 && (
