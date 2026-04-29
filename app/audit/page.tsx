@@ -4,12 +4,12 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   RefreshCw, AlertTriangle, CheckCircle2, X,
   Search, Zap, ChevronRight,
-  BarChart2, Loader2, Layers, Image as ImageIcon,
+  BarChart2, Loader2,
   TrendingUp, TrendingDown, Minus,
 } from 'lucide-react'
 import type {
-  ClientAudit, CampaignAudit, AuditData, CampaignData,
-  CreativeData, CreativeLifecycle, Lifecycle, Status, Health,
+  ClientAudit, AuditData, CampaignData,
+  Status, Health,
 } from '@/lib/audit'
 
 // ── Formatters ────────────────────────────────────────────────────────────────
@@ -30,22 +30,6 @@ const HEALTH: Record<Health, { label: string; bg: string; text: string; dot: str
   stable:    { label: 'Estable',   bg: 'bg-blue-600/15',    text: 'text-blue-400',    dot: 'bg-blue-500',    border: 'border-blue-500/30'    },
   review:    { label: 'Revisar',   bg: 'bg-amber-500/15',   text: 'text-amber-400',   dot: 'bg-amber-400',   border: 'border-amber-500/30'   },
   priority:  { label: 'Urgente',   bg: 'bg-rose-500/15',    text: 'text-rose-400',    dot: 'bg-rose-500',    border: 'border-rose-500/30'    },
-}
-
-const LC_CONFIG: Record<Lifecycle, { label: string; bg: string; color: string; border: string; dot: string; criteria: string; action: string }> = {
-  growth:    { label: 'Creciendo',  bg: 'bg-emerald-500/10', color: 'text-emerald-400', border: 'border-emerald-500/20', dot: 'bg-emerald-400', criteria: 'CTR estable o en alza', action: 'Mantener activo · preparar escala' },
-  peak:      { label: 'En pico',    bg: 'bg-blue-600/10',    color: 'text-blue-400',    border: 'border-blue-500/20',    dot: 'bg-blue-400',    criteria: 'CTR estable (±10%)',    action: 'Crear variaciones mientras funciona' },
-  decline:   { label: 'Declinando', bg: 'bg-amber-500/10',   color: 'text-amber-400',   border: 'border-amber-500/20',   dot: 'bg-amber-400',   criteria: 'CTR cayó entre 10–30%', action: 'Preparar creatividad nueva esta semana' },
-  exhausted: { label: 'Agotado',    bg: 'bg-rose-500/10',    color: 'text-rose-400',    border: 'border-rose-500/20',    dot: 'bg-rose-400',    criteria: 'CTR cayó más de 30%',   action: 'Pausar y reemplazar de inmediato' },
-}
-
-type ActionLevel = 'great' | 'ok' | 'warn' | 'danger'
-
-const ACTION_STYLES: Record<ActionLevel, { bg: string; border: string; title: string; body: string }> = {
-  great:  { bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', title: 'text-emerald-300', body: 'text-emerald-400' },
-  ok:     { bg: 'bg-blue-600/10',    border: 'border-blue-500/20',    title: 'text-blue-300',    body: 'text-blue-400'    },
-  warn:   { bg: 'bg-amber-500/10',   border: 'border-amber-500/20',   title: 'text-amber-300',   body: 'text-amber-400'   },
-  danger: { bg: 'bg-rose-500/10',    border: 'border-rose-500/20',    title: 'text-rose-300',    body: 'text-rose-400'    },
 }
 
 // ── Small atoms ───────────────────────────────────────────────────────────────
@@ -117,121 +101,75 @@ function MetricTile({ label, value, delta, status, highlight, invert }: {
   )
 }
 
-// ── Creative action ───────────────────────────────────────────────────────────
+// ── Trend section (7d vs 7d anterior) ────────────────────────────────────────
 
-function getCreativeAction(c: CreativeLifecycle): { title: string; body: string; level: ActionLevel } {
-  if (c.is_new) return { title: 'En aprendizaje', body: 'Esperar 5–7 días antes de evaluar', level: 'ok' }
-  switch (c.lifecycle) {
-    case 'exhausted': return { title: 'Pausar y reemplazar', body: 'CTR cayó +30% — creatividad agotada', level: 'danger' }
-    case 'decline':   return { title: 'Crear variación', body: 'CTR bajando — preparar nuevo hook esta semana', level: 'warn' }
-    case 'peak':      return { title: 'Duplicar mientras funciona', body: 'CTR estable — crear variaciones similares', level: 'ok' }
-    case 'growth':
-      if (c.ctr_change !== null && c.ctr_change > 15)
-        return { title: 'Escalar presupuesto', body: 'Alto rendimiento — subir 10–20% cada 3–4 días', level: 'great' }
-      return { title: 'Mantener activo', body: 'En crecimiento — escalar si los resultados acompañan', level: 'great' }
-  }
-}
+function TrendSection({ client, convLabel, cplLabel }: {
+  client: ClientAudit; convLabel: string; cplLabel: string
+}) {
+  const prevVal = (cur: number, ch: number | null): number | null =>
+    ch !== null ? cur / (1 + ch / 100) : null
 
-// ── Creative card ─────────────────────────────────────────────────────────────
-
-function CreativeCard({ c }: { c: CreativeLifecycle }) {
-  const action = getCreativeAction(c)
-  const styles = ACTION_STYLES[action.level]
-  const lcCfg  = LC_CONFIG[c.lifecycle]
-  const [imgErr, setImgErr] = useState(false)
-
-  return (
-    <div className="flex gap-3 p-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl hover:border-[#333] transition-colors">
-      <div className="w-12 h-12 rounded-lg overflow-hidden bg-[#252525] border border-[#333] shrink-0 flex items-center justify-center">
-        {c.thumbnail_url && !imgErr ? (
-          <img src={c.thumbnail_url} alt={c.ad_name} className="w-full h-full object-cover" onError={() => setImgErr(true)} />
-        ) : (
-          <ImageIcon size={16} className="text-gray-600" />
-        )}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-start justify-between gap-2 mb-0.5">
-          <p className="text-sm font-semibold text-gray-100 truncate leading-tight" title={c.ad_name}>{c.ad_name}</p>
-          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0 ${lcCfg.bg} ${lcCfg.color} ${lcCfg.border}`}>
-            <span className={`w-1 h-1 rounded-full ${lcCfg.dot}`} />{lcCfg.label}
-          </span>
-        </div>
-        <p className="text-[11px] text-gray-500 truncate mb-2">{c.campaign}{c.adset_name && c.adset_name !== '—' ? ` › ${c.adset_name}` : ''}</p>
-        <div className={`rounded-lg border px-2.5 py-1.5 ${styles.bg} ${styles.border}`}>
-          <p className={`text-xs font-bold ${styles.title}`}>{action.title}</p>
-          <p className={`text-[11px] ${styles.body}`}>{action.body}</p>
-        </div>
-        <div className="flex items-center gap-3 mt-1.5 text-[11px] text-gray-500">
-          <span>Gasto 7d: <span className="font-semibold text-gray-400">{ars(c.spend_week)}</span></span>
-          {c.ctr_change !== null && (
-            <span className={`font-semibold ${c.ctr_change >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-              CTR {c.ctr_change > 0 ? '+' : ''}{c.ctr_change.toFixed(0)}% vs sem.ant.
-            </span>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Creative section ──────────────────────────────────────────────────────────
-
-function CreativeSection({ accountId }: { accountId: string }) {
-  const [data, setData]       = useState<CreativeData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError]     = useState<string | null>(null)
-
-  useEffect(() => {
-    fetch(`/api/audit/creatives?account_id=${accountId}`)
-      .then(r => r.json())
-      .then(json => { if (json.error) throw new Error(json.error); setData(json) })
-      .catch(e => setError(String(e)))
-      .finally(() => setLoading(false))
-  }, [accountId])
+  const metrics = [
+    { label: 'Inversión', current: client.spend, previous: prevVal(client.spend, client.spend_change), change: client.spend_change, format: ars },
+    { label: convLabel, current: client.conversions, previous: prevVal(client.conversions, client.conversions_change), change: client.conversions_change, format: (n: number) => Math.round(n).toString() },
+    { label: cplLabel, current: client.cpl, previous: prevVal(client.cpl, client.cpl_change), change: client.cpl_change, format: ars, invert: true },
+    { label: 'CTR (link clicks)', current: client.ctr, previous: prevVal(client.ctr, client.ctr_change), change: client.ctr_change, format: (n: number) => `${n.toFixed(2)}%` },
+  ]
 
   return (
     <div>
-      <div className="flex items-center gap-2 mb-3">
-        <Layers size={13} className="text-gray-500" />
-        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Ciclo de creatividades</h3>
+      <div className="flex items-center justify-between gap-2 mb-4">
+        <div className="flex items-center gap-2">
+          <BarChart2 size={13} className="text-gray-500" />
+          <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Tendencia 7d vs 7d anterior</h3>
+        </div>
+        <div className="flex items-center gap-3 text-[10px] text-gray-500">
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-1.5 bg-blue-500 rounded-full inline-block" />Últimos 7d</span>
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-1.5 bg-gray-600 rounded-full inline-block" />7d ant.</span>
+        </div>
       </div>
-
-      {/* Legend */}
-      <div className="grid grid-cols-2 gap-2 mb-3">
-        {(Object.entries(LC_CONFIG) as [Lifecycle, typeof LC_CONFIG[Lifecycle]][]).map(([, cfg]) => (
-          <div key={cfg.label} className={`rounded-lg border px-2.5 py-1.5 ${cfg.bg} ${cfg.border}`}>
-            <div className="flex items-center gap-1 mb-0.5">
-              <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-              <span className={`text-[11px] font-bold ${cfg.color}`}>{cfg.label}</span>
-            </div>
-            <p className="text-[10px] text-gray-500">{cfg.criteria}</p>
-          </div>
-        ))}
-      </div>
-
-      {loading && <div className="flex items-center gap-2 py-3 text-sm text-gray-500"><Loader2 size={13} className="animate-spin" /> Analizando…</div>}
-      {error && <p className="text-sm text-rose-400 flex items-center gap-1"><AlertTriangle size={13} />{error}</p>}
-      {!loading && !error && data && data.creatives.length === 0 && (
-        <p className="text-sm text-gray-500">Sin anuncios activos con actividad suficiente.</p>
-      )}
-      {!loading && !error && data && data.creatives.length > 0 && (
-        <>
-          <div className="flex flex-wrap gap-1.5 mb-3">
-            {(Object.entries(LC_CONFIG) as [Lifecycle, typeof LC_CONFIG[Lifecycle]][]).map(([lc, cfg]) => {
-              const count = data.creatives.filter(c => c.lifecycle === lc).length
-              if (!count) return null
-              return (
-                <span key={lc} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${cfg.bg} ${cfg.color} ${cfg.border}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />{cfg.label} ({count})
+      <div className="grid grid-cols-2 gap-3">
+        {metrics.map(m => {
+          const max = Math.max(m.current, m.previous ?? 0, 0.001)
+          const curW  = Math.round((m.current  / max) * 100)
+          const prevW = m.previous !== null ? Math.round((m.previous / max) * 100) : 0
+          const positive = m.change === null ? null : m.invert ? m.change < 0 : m.change > 0
+          const chColor = m.change === null ? 'text-gray-600'
+            : m.change === 0 ? 'text-gray-500'
+            : positive ? 'text-emerald-400' : 'text-rose-400'
+          const Icon = m.change === null || m.change === 0 ? Minus : positive ? TrendingUp : TrendingDown
+          return (
+            <div key={m.label} className="bg-[#111111] rounded-xl border border-[#2a2a2a] px-4 py-4">
+              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3">{m.label}</p>
+              <div className="space-y-2 mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 bg-[#2a2a2a] rounded-full h-2 overflow-hidden">
+                    <div style={{ width: `${curW}%` }} className="h-full bg-blue-500 rounded-full" />
+                  </div>
+                  <span className="text-[11px] font-semibold text-gray-100 w-16 text-right shrink-0 tabular-nums whitespace-nowrap">
+                    {m.current > 0 ? m.format(m.current) : '—'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 bg-[#2a2a2a] rounded-full h-2 overflow-hidden">
+                    <div style={{ width: `${prevW}%` }} className="h-full bg-gray-600 rounded-full" />
+                  </div>
+                  <span className="text-[11px] text-gray-500 w-16 text-right shrink-0 tabular-nums whitespace-nowrap">
+                    {m.previous !== null && m.previous > 0 ? m.format(m.previous) : '—'}
+                  </span>
+                </div>
+              </div>
+              <div className={`flex items-center gap-1 ${chColor}`}>
+                <Icon size={11} strokeWidth={2.5} />
+                <span className="text-[11px] font-bold">
+                  {m.change !== null ? `${m.change > 0 ? '+' : ''}${m.change.toFixed(1)}%` : '—'}
                 </span>
-              )
-            })}
-          </div>
-          <div className="space-y-2">
-            {data.creatives.map(c => <CreativeCard key={c.ad_id} c={c} />)}
-          </div>
-        </>
-      )}
+                <span className="text-[10px] text-gray-600 font-normal ml-0.5">vs sem. ant.</span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -425,9 +363,9 @@ function ClientDrawer({ client, onClose }: { client: ClientAudit; onClose: () =>
               <CampaignSection accountId={client.account_id} />
             </div>
 
-            {/* Creatives */}
+            {/* Trends */}
             <div className="bg-[#252525] rounded-xl border border-[#2a2a2a] px-6 py-5">
-              <CreativeSection accountId={client.account_id} />
+              <TrendSection client={client} convLabel={convLabel} cplLabel={cplLabel} />
             </div>
 
           </div>
