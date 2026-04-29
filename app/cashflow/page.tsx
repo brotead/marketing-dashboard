@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import CampaignRow from '@/components/CampaignRow'
 import dynamic from 'next/dynamic'
 const CampaignFormModal = dynamic(() => import('@/components/CampaignFormModal'), { ssr: false })
-const ClientFormModal   = dynamic(() => import('@/components/ClientFormModal'),   { ssr: false })
+const NewClientModal    = dynamic(() => import('@/components/NewClientModal'),    { ssr: false })
 import type { AccountData, BudgetEntry, CampaignSpend } from '@/lib/types'
 import { calcCashflow } from '@/lib/calculations'
 
@@ -714,53 +714,6 @@ export default function CashflowPage() {
     setClientModal(false)
   }
 
-  const handleSaveClient = async (rawName: string) => {
-    const name = rawName.toUpperCase()
-    const ts   = Date.now()
-    const toSave: BudgetEntry[] = []
-
-    for (const source of ['facebook', 'google'] as Source[]) {
-      const match = accounts.find(a => a.source === source && fuzzyMatch(name, a.account_name))
-      if (match) {
-        const campaigns = windsorCampaigns.filter(
-          wc => wc.account_id === match.account_id && wc.source === source && wc.spend > 0
-        )
-        const suffix = source === 'facebook' ? 'fb' : 'gg'
-        campaigns.forEach((wc, i) => toSave.push({
-          campaign_id:   `auto_${suffix}_${match.account_id.slice(-5)}_${ts}_${i}`,
-          campaign_name: wc.campaign_name,
-          client_name:   name,
-          source,
-          account_id:    match.account_id,
-          year, month,
-          budget_total:  0,
-          paused:        false,
-        }))
-      } else {
-        // fallback: save as pending, 5-min sync will retry
-        toSave.push({
-          campaign_id:   `pending_${source}_${ts}`,
-          campaign_name: '__auto__',
-          client_name:   name,
-          source,
-          account_id:    '__pending__',
-          year, month,
-          budget_total:  0,
-          paused:        true,
-        })
-      }
-    }
-
-    await Promise.all(toSave.map(e => fetch('/api/budgets', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(e),
-    })))
-    setBudgets(prev => [...prev, ...toSave])
-    setClientModal(false)
-    const first = toSave.find(e => e.account_id !== '__pending__')
-    if (first) setSelected({ client: first.client_name, source: first.source as Source })
-  }
 
   const handleDelete = async (campaignId: string) => {
     await fetch('/api/budgets', {
@@ -1253,9 +1206,9 @@ export default function CashflowPage() {
 
       {/* Add client modal */}
       {clientModal && (
-        <ClientFormModal
-          onSave={handleSaveClient}
+        <NewClientModal
           onClose={() => setClientModal(false)}
+          onCreated={() => { setClientModal(false); fetchData(true) }}
         />
       )}
 
