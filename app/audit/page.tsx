@@ -11,6 +11,7 @@ import type {
   ClientAudit, AuditData, CampaignData,
   Status, Health,
 } from '@/lib/audit'
+import MonthlyCharts from '@/components/MonthlyCharts'
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
@@ -353,6 +354,9 @@ function ClientDrawer({ client, onClose }: { client: ClientAudit; onClose: () =>
                 </p>
               )}
             </div>
+
+            {/* Monthly charts */}
+            <MonthlyCharts accountId={client.account_id} clientName={client.client_name} />
 
             {/* Campaigns */}
             <div className="bg-[#252525] rounded-xl border border-[#2a2a2a] px-6 py-5">
