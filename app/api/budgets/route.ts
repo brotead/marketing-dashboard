@@ -6,7 +6,7 @@ export async function GET() {
   const ctx = await getWorkspaceCtx()
   const data = await getBudgets(ctx)
   return NextResponse.json(data, {
-    headers: { 'Cache-Control': 'private, max-age=300, stale-while-revalidate=600' },
+    headers: { 'Cache-Control': 'no-store' },
   })
 }
 

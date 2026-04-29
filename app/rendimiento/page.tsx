@@ -49,8 +49,8 @@ export default function RendimientoPage() {
     try {
       const [windsorRes, goalsRes, budgetsRes, kpisRes] = await Promise.all([
         fetch(`/api/windsor?year=${year}&month=${month}`),
-        fetch('/api/goals'),
-        fetch('/api/budgets'),
+        fetch('/api/goals',   { cache: 'no-store' }),
+        fetch('/api/budgets', { cache: 'no-store' }),
         fetch(`/api/kpis?year=${year}&month=${month}`),
       ])
       const windsorJson = await windsorRes.json()
