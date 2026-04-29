@@ -427,7 +427,8 @@ export default function CashflowPage() {
   const [selected, setSelected] = useState<Selection | null>(null)
   const [modal, setModal] = useState<ModalState | null>(null)
 
-  const [deleteConfirm, setDeleteConfirm] = useState<{ clientName: string; source: Source } | null>(null)
+  const [deleteConfirm,         setDeleteConfirm]         = useState<{ clientName: string; source: Source } | null>(null)
+  const [campaignDeleteConfirm, setCampaignDeleteConfirm] = useState<BudgetEntry | null>(null)
   const [newToasts, setNewToasts] = useState<{ id: string; name: string; client: string }[]>([])
   const [newCampaignIds, setNewCampaignIds] = useState<Set<string>>(new Set())
   const [editingTotal, setEditingTotal] = useState(false)
@@ -541,14 +542,17 @@ export default function CashflowPage() {
   // Hourly: detect truly new campaigns (any spend, including $0) — never updates existing ones
   const checkNewCampaigns = useCallback(async () => {
     try {
-      const [windsorRes, budgetRes] = await Promise.all([
+      const [windsorRes, budgetRes, excludedRes] = await Promise.all([
         fetch(`/api/windsor?year=${year}&month=${month}&force=true`),
         fetch('/api/budgets', { cache: 'no-store' }),
+        fetch('/api/excluded-campaigns', { cache: 'no-store' }),
       ])
       if (!windsorRes.ok) return
       const windsorJson  = await windsorRes.json()
       const bs: BudgetEntry[]            = await budgetRes.json()
       const wCampaigns: CampaignSpend[]  = windsorJson.campaigns ?? []
+      const excluded: { account_id: string; source: string; campaign_name_norm: string }[] =
+        excludedRes.ok ? await excludedRes.json() : []
 
       const monthBudgets = bs.filter(b => b.year === year && b.month === month)
 
@@ -563,6 +567,10 @@ export default function CashflowPage() {
       const existingKeys = new Set<string>()
       for (const b of monthBudgets) {
         existingKeys.add(`${b.account_id}|${b.source}|${normName(b.campaign_name)}`)
+      }
+      // Also add manually-excluded campaigns so they are never re-added
+      for (const ex of excluded) {
+        existingKeys.add(`${ex.account_id}|${ex.source}|${ex.campaign_name_norm}`)
       }
 
       // Detect campaigns in Windsor but not in budgets
@@ -713,15 +721,28 @@ export default function CashflowPage() {
   }
 
 
-  const handleDelete = async (campaignId: string) => {
+  const handleDelete = async (entry: BudgetEntry) => {
+    // Delete the budget entry for this month
     await fetch('/api/budgets', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ campaign_id: campaignId, year, month }),
+      body: JSON.stringify({ campaign_id: entry.campaign_id, year, month }),
+    })
+    // Add to excluded list so the hourly sync never re-adds it
+    await fetch('/api/excluded-campaigns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        account_id:        entry.account_id,
+        source:            entry.source,
+        campaign_name:     entry.campaign_name,
+        campaign_name_norm: normName(entry.campaign_name),
+      }),
     })
     setBudgets((prev) =>
-      prev.filter((b) => !(b.campaign_id === campaignId && b.year === year && b.month === month))
+      prev.filter((b) => !(b.campaign_id === entry.campaign_id && b.year === year && b.month === month))
     )
+    setCampaignDeleteConfirm(null)
   }
 
   const deleteClient = async (clientName: string, source: Source) => {
@@ -834,6 +855,35 @@ export default function CashflowPage() {
   return (
     <div>
       {/* Delete client confirmation modal */}
+      {campaignDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setCampaignDeleteConfirm(null)}>
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+          <div
+            className="relative bg-white dark:bg-[#161616] border border-gray-200 dark:border-[#2a2a2a] rounded-2xl shadow-2xl p-6 w-full max-w-sm"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-1">¿Eliminar campaña?</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-5">
+              Se eliminará <span className="font-semibold text-gray-700 dark:text-gray-300">{campaignDeleteConfirm.campaign_name}</span> y no volverá a aparecer aunque Windsor la detecte. Esta acción no se puede deshacer.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setCampaignDeleteConfirm(null)}
+                className="flex-1 py-2 rounded-xl text-xs font-semibold text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-[#252525] hover:bg-gray-200 dark:hover:bg-[#2d2d2d] transition"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => handleDelete(campaignDeleteConfirm)}
+                className="flex-1 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition"
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {deleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setDeleteConfirm(null)}>
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
@@ -1086,7 +1136,7 @@ export default function CashflowPage() {
                       cashflow={cf}
                       isNew={newCampaignIds.has(b.campaign_id)}
                       onEdit={() => setModal({ entry: b, clientName: b.client_name, accountId: b.account_id, source: b.source as Source })}
-                      onDelete={() => handleDelete(b.campaign_id)}
+                      onDelete={() => setCampaignDeleteConfirm(b)}
                       onPause={() => handlePause(b)}
                       onSpendOverride={(val) => handleSpendOverride(b, val)}
                     />
@@ -1132,7 +1182,7 @@ export default function CashflowPage() {
                           budget={b}
                           cashflow={cf}
                           onEdit={() => setModal({ entry: b, clientName: b.client_name, accountId: b.account_id, source: b.source as Source })}
-                          onDelete={() => handleDelete(b.campaign_id)}
+                          onDelete={() => setCampaignDeleteConfirm(b)}
                           onPause={() => handlePause(b)}
                           onSpendOverride={(val) => handleSpendOverride(b, val)}
                         />
