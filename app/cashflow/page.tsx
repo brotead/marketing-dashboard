@@ -158,7 +158,7 @@ function campaignSpend(
   if (budget.spend_override != null) return budget.spend_override
 
   const accountBudgets = monthBudgets.filter(
-    (b) => b.account_id === budget.account_id && b.source === budget.source && !b.paused
+    (b) => b.account_id === budget.account_id && b.source === budget.source
   )
   const accCampaigns = windsorCampaigns.filter(
     (c) => c.account_id === budget.account_id && c.source === budget.source
@@ -182,9 +182,9 @@ function campaignSpend(
   // 3. Fall back to proportional distribution from account total
   const account = accounts.find((a) => a.account_id === budget.account_id && a.source === budget.source)
   if (!account) return 0
-  const activeBudgets = monthBudgets.filter((b) => b.account_id === budget.account_id && b.source === budget.source && !b.paused)
-  const accountTotalBudget = activeBudgets.reduce((s, b) => s + b.budget_total, 0)
-  if (accountTotalBudget === 0) return activeBudgets.length > 0 ? account.spend / activeBudgets.length : 0
+  const allAccountBudgets = monthBudgets.filter((b) => b.account_id === budget.account_id && b.source === budget.source)
+  const accountTotalBudget = allAccountBudgets.reduce((s, b) => s + b.budget_total, 0)
+  if (accountTotalBudget === 0) return allAccountBudgets.length > 0 ? account.spend / allAccountBudgets.length : 0
   return (budget.budget_total / accountTotalBudget) * account.spend
 }
 
