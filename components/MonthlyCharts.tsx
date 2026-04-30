@@ -65,6 +65,7 @@ function DualChart({
 }) {
   const W = 300, H = 110, L = 44, B = 16
   const PH = H - B  // plot height (below X axis labels)
+  const MDAYS = 30  // fixed 30-day x-scale so labels always show 1 · 15 · 30
 
   // Filter out trailing zeros in current (days not yet passed)
   const lastNonZero = cur.reduce((acc, v, i) => v > 0 ? i : acc, -1)
@@ -78,11 +79,11 @@ function DualChart({
   const maxV = Math.max(...allVals)
   const rng  = Math.max(maxV, 0.001)
 
-  const toX = (i: number, len: number) => L + (i / Math.max(len - 1, 1)) * (W - L)
-  const toY = (v: number) => PH * 0.95 - (v / rng) * PH * 0.87
+  const toX = (day: number) => L + ((day - 1) / (MDAYS - 1)) * (W - L)
+  const toY = (v: number)   => PH * 0.95 - (v / rng) * PH * 0.87
 
-  const curPts:  [number, number][] = curTrimmed.map((v, i) => [toX(i, curTrimmed.length), toY(v)])
-  const prevPts: [number, number][] = prev.map((v, i)       => [toX(i, prev.length),       toY(v)])
+  const curPts:  [number, number][] = curTrimmed.map((v, i) => [toX(i + 1), toY(v)])
+  const prevPts: [number, number][] = prev.map((v, i)       => [toX(i + 1), toY(v)])
 
   const curLine  = curve(curPts)
   const prevLine = curve(prevPts.filter(([, y]) => isFinite(y)))
@@ -93,9 +94,8 @@ function DualChart({
   // Y axis: 3 ticks (0, mid, max)
   const yTicks = [0, maxV / 2, maxV]
 
-  // X axis: day 1, midpoint, last day
-  const nDays = curTrimmed.length
-  const xTickIdxs = [...new Set([0, Math.floor((nDays - 1) / 2), nDays - 1])].filter(i => i >= 0)
+  // X axis: fixed day labels 1 · 15 · 30
+  const xTicks = [1, 15, 30]
 
   return (
     <svg width="100%" height="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
@@ -119,10 +119,17 @@ function DualChart({
       {/* X axis baseline */}
       <line x1={L} x2={W} y1={PH} y2={PH} stroke="#2a2a2a" strokeWidth="0.8" />
 
-      {/* X tick labels (day numbers) */}
-      {xTickIdxs.map(idx => (
-        <text key={idx} x={toX(idx, nDays)} y={H - 2} textAnchor="middle" fontSize="9" fill="#4b4b4b">
-          {idx + 1}
+      {/* X tick labels: 1 · 15 · 30, anchored to prevent clipping */}
+      {xTicks.map((day, i) => (
+        <text
+          key={day}
+          x={toX(day)}
+          y={H - 2}
+          textAnchor={i === 0 ? 'start' : i === xTicks.length - 1 ? 'end' : 'middle'}
+          fontSize="9"
+          fill="#4b4b4b"
+        >
+          {day}
         </text>
       ))}
 
