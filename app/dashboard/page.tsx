@@ -105,7 +105,7 @@ export default function DashboardPage() {
   const clientMetrics = useMemo(() => {
     const map: Record<string, { spend: number; deviation: number }> = {}
     for (const client of allClients) {
-      const cb = monthBudgets.filter(b => b.client_name === client && !b.paused)
+      const cb = monthBudgets.filter(b => b.client_name === client)
       const totalBudget = cb.reduce((s, b) => s + b.budget_total, 0)
       const mId = cb.find(b => b.source === 'facebook')?.account_id
       const gId = cb.find(b => b.source === 'google')?.account_id
@@ -128,22 +128,22 @@ export default function DashboardPage() {
     }
   }), [activeClients, sortOrder, clientMetrics])
 
-  // Summary totals — only active (non-paused) accounts
-  const configuredMetaIds   = new Set(monthBudgets.filter(b => b.source === 'facebook' && !b.paused).map(b => b.account_id))
-  const configuredGoogleIds = new Set(monthBudgets.filter(b => b.source === 'google'   && !b.paused).map(b => b.account_id))
+  // Summary totals — include paused campaigns (their budget and spend still count)
+  const configuredMetaIds   = new Set(monthBudgets.filter(b => b.source === 'facebook').map(b => b.account_id))
+  const configuredGoogleIds = new Set(monthBudgets.filter(b => b.source === 'google').map(b => b.account_id))
   const totalMetaSpend   = accounts.filter(a => a.source === 'facebook' && configuredMetaIds.has(a.account_id)).reduce((s, a) => s + a.spend, 0)
   const totalGoogleSpend = accounts.filter(a => a.source === 'google'   && configuredGoogleIds.has(a.account_id)).reduce((s, a) => s + a.spend, 0)
   const totalSpend       = totalMetaSpend + totalGoogleSpend
 
-  const totalMetaBudget   = monthBudgets.filter(b => b.source === 'facebook' && !b.paused).reduce((s, b) => s + b.budget_total, 0)
-  const totalGoogleBudget = monthBudgets.filter(b => b.source === 'google'   && !b.paused).reduce((s, b) => s + b.budget_total, 0)
+  const totalMetaBudget   = monthBudgets.filter(b => b.source === 'facebook').reduce((s, b) => s + b.budget_total, 0)
+  const totalGoogleBudget = monthBudgets.filter(b => b.source === 'google').reduce((s, b) => s + b.budget_total, 0)
   const totalBudget       = totalMetaBudget + totalGoogleBudget
 
   // Use precomputed metrics — O(n) lookup instead of O(n²)
   const activeCount = activeClients.filter(c => (clientMetrics[c]?.spend ?? 0) > 0).length
 
   const handleClientClick = useCallback((client: string) => {
-    const cb = monthBudgets.filter(b => b.client_name === client && !b.paused)
+    const cb = monthBudgets.filter(b => b.client_name === client)
     const source = cb.find(b => b.source === 'facebook') ? 'facebook' : 'google'
     router.push(`/cashflow?client=${encodeURIComponent(client)}&source=${source}`)
   }, [monthBudgets, router])
