@@ -75,11 +75,11 @@ function DualChart({
   }
 
   const maxV = Math.max(...allVals)
-  const minV = Math.min(...allVals) * 0.85
-  const rng  = Math.max(maxV - minV, 0.001)
+  const rng  = Math.max(maxV, 0.001)
 
+  // Always start Y from 0 — keeps proportions honest and prevents 0-value days from plotting off-chart
   const toX = (i: number, len: number) => (i / Math.max(len - 1, 1)) * W
-  const toY = (v: number) => H * 0.05 + (H * 0.88) * (1 - (v - minV) / rng)
+  const toY = (v: number) => H * 0.95 - (v / rng) * H * 0.88
 
   const curPts:  [number, number][] = curTrimmed.map((v, i) => [toX(i, curTrimmed.length), toY(v)])
   const prevPts: [number, number][] = prev.map((v, i)       => [toX(i, prev.length),       toY(v)])
@@ -217,7 +217,7 @@ export default function MonthlyCharts({ accountId, clientName }: { accountId: st
         return (
           <div className="grid grid-cols-3 gap-4">
             <ChartCard
-              title="Inversión diaria"
+              title="Inversión"
               delta={d_spend}
               color="#3b82f6"
               uid="mc-spend"
@@ -241,7 +241,7 @@ export default function MonthlyCharts({ accountId, clientName }: { accountId: st
               formatTotal={v => v > 0 ? v.toLocaleString('es-AR') : '—'}
             />
             <ChartCard
-              title="CTR diario"
+              title="CTR"
               delta={d_ctr}
               color={d_ctr !== null && d_ctr >= 0 ? '#22c55e' : '#ef4444'}
               uid="mc-ctr"
