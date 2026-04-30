@@ -21,9 +21,6 @@ function ars(n: number): string {
   return (n < 0 ? '-$ ' : '$ ') + formatted
 }
 
-const pct = (n: number | null) =>
-  n === null ? '—' : `${n > 0 ? '+' : ''}${n.toFixed(1)}%`
-
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const HEALTH: Record<Health, { label: string; bg: string; text: string; dot: string; border: string }> = {
@@ -81,97 +78,6 @@ function Delta({ value, status, invert }: { value: number | null; status: Status
       <Icon size={12} strokeWidth={2.5} />
       {Math.abs(value).toFixed(1)}%
     </span>
-  )
-}
-
-function MetricTile({ label, value, delta, status, highlight, invert }: {
-  label: string; value: string; delta?: number | null; status?: Status; highlight?: boolean; invert?: boolean
-}) {
-  return (
-    <div className={`rounded-xl px-4 py-3 border ${highlight ? 'bg-[#252525] border-[#333]' : 'bg-[#1a1a1a] border-[#2a2a2a]'}`}>
-      <p className="text-[11px] font-medium uppercase tracking-wide mb-1 text-gray-400">{label}</p>
-      <p className={`text-lg font-bold leading-tight ${highlight ? 'text-gray-100' : 'text-gray-100'}`}>{value}</p>
-      {delta !== undefined && delta !== null && status && (
-        <p className={`text-xs mt-0.5 font-semibold ${
-          delta === 0 ? 'text-gray-500' : (invert ? delta < 0 : delta > 0) ? 'text-emerald-500' : 'text-rose-500'
-        }`}>
-          {pct(delta)} vs sem. ant.
-        </p>
-      )}
-    </div>
-  )
-}
-
-// ── Trend section (7d vs 7d anterior) ────────────────────────────────────────
-
-function TrendSection({ client, convLabel, cplLabel }: {
-  client: ClientAudit; convLabel: string; cplLabel: string
-}) {
-  const prevVal = (cur: number, ch: number | null): number | null =>
-    ch !== null ? cur / (1 + ch / 100) : null
-
-  const metrics = [
-    { label: 'Inversión', current: client.spend, previous: prevVal(client.spend, client.spend_change), change: client.spend_change, format: ars },
-    { label: convLabel, current: client.conversions, previous: prevVal(client.conversions, client.conversions_change), change: client.conversions_change, format: (n: number) => Math.round(n).toString() },
-    { label: cplLabel, current: client.cpl, previous: prevVal(client.cpl, client.cpl_change), change: client.cpl_change, format: ars, invert: true },
-    { label: 'CTR (link clicks)', current: client.ctr, previous: prevVal(client.ctr, client.ctr_change), change: client.ctr_change, format: (n: number) => `${n.toFixed(2)}%` },
-  ]
-
-  return (
-    <div>
-      <div className="flex items-center justify-between gap-2 mb-4">
-        <div className="flex items-center gap-2">
-          <BarChart2 size={13} className="text-gray-500" />
-          <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Tendencia 7d vs 7d anterior</h3>
-        </div>
-        <div className="flex items-center gap-3 text-[10px] text-gray-500">
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-1.5 bg-blue-500 rounded-full inline-block" />Últimos 7d</span>
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-1.5 bg-gray-600 rounded-full inline-block" />7d ant.</span>
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        {metrics.map(m => {
-          const max = Math.max(m.current, m.previous ?? 0, 0.001)
-          const curW  = Math.round((m.current  / max) * 100)
-          const prevW = m.previous !== null ? Math.round((m.previous / max) * 100) : 0
-          const positive = m.change === null ? null : m.invert ? m.change < 0 : m.change > 0
-          const chColor = m.change === null ? 'text-gray-600'
-            : m.change === 0 ? 'text-gray-500'
-            : positive ? 'text-emerald-400' : 'text-rose-400'
-          const Icon = m.change === null || m.change === 0 ? Minus : positive ? TrendingUp : TrendingDown
-          return (
-            <div key={m.label} className="bg-[#111111] rounded-xl border border-[#2a2a2a] px-4 py-4">
-              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3">{m.label}</p>
-              <div className="space-y-2 mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 bg-[#2a2a2a] rounded-full h-2 overflow-hidden">
-                    <div style={{ width: `${curW}%` }} className="h-full bg-blue-500 rounded-full" />
-                  </div>
-                  <span className="text-[11px] font-semibold text-gray-100 w-16 text-right shrink-0 tabular-nums whitespace-nowrap">
-                    {m.current > 0 ? m.format(m.current) : '—'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 bg-[#2a2a2a] rounded-full h-2 overflow-hidden">
-                    <div style={{ width: `${prevW}%` }} className="h-full bg-gray-600 rounded-full" />
-                  </div>
-                  <span className="text-[11px] text-gray-500 w-16 text-right shrink-0 tabular-nums whitespace-nowrap">
-                    {m.previous !== null && m.previous > 0 ? m.format(m.previous) : '—'}
-                  </span>
-                </div>
-              </div>
-              <div className={`flex items-center gap-1 ${chColor}`}>
-                <Icon size={11} strokeWidth={2.5} />
-                <span className="text-[11px] font-bold">
-                  {m.change !== null ? `${m.change > 0 ? '+' : ''}${m.change.toFixed(1)}%` : '—'}
-                </span>
-                <span className="text-[10px] text-gray-600 font-normal ml-0.5">vs sem. ant.</span>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
   )
 }
 
@@ -273,103 +179,102 @@ function ClientDrawer({ client, onClose }: { client: ClientAudit; onClose: () =>
     return () => { document.body.style.overflow = '' }
   }, [])
 
-  const convLabel = client.client_type === 'messaging' ? 'Conversaciones iniciadas' : 'Visitas al perfil IG'
-  const cplLabel  = client.client_type === 'messaging' ? 'Costo por mensaje' : 'Costo por visita IG'
+  const convLabel = client.client_type === 'messaging' ? 'Conversaciones' : 'Visitas IG'
+  const cplLabel  = client.client_type === 'messaging' ? 'Costo / msg' : 'Costo / visita'
+
+  const stats = [
+    { label: 'Inversión 7d', value: ars(client.spend), delta: client.spend_change, invert: false },
+    { label: convLabel, value: client.conversions > 0 ? client.conversions.toLocaleString('es-AR') : '—', delta: client.conversions_change, invert: false },
+    { label: cplLabel, value: client.cpl > 0 ? ars(client.cpl) : '—', delta: client.cpl_change, invert: true },
+    { label: 'CTR', value: `${client.ctr.toFixed(2)}%`, delta: client.ctr_change, invert: false },
+  ]
+
+  const diagBg = client.health === 'priority'  ? 'bg-rose-500/10 border-rose-500/20'
+               : client.health === 'review'    ? 'bg-amber-500/10 border-amber-500/20'
+               : client.health === 'excellent' ? 'bg-emerald-500/10 border-emerald-500/20'
+               :                                 'bg-blue-600/10 border-blue-500/20'
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
 
-      {/* Centered modal */}
-      <div className="relative min-h-full flex items-start justify-center p-4 pt-10 pb-10" onClick={onClose}>
-        <div className="relative w-full max-w-4xl bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl shadow-2xl" onClick={e => e.stopPropagation()}>
+      <div className="relative min-h-full flex items-start justify-center px-4 py-10" onClick={onClose}>
+        <div className="relative w-full max-w-5xl bg-[#0f0f0f] border border-[#222] rounded-2xl shadow-2xl" onClick={e => e.stopPropagation()}>
 
-          {/* Header */}
-          <div className="px-8 py-5 border-b border-[#2a2a2a] flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3 min-w-0">
-              <span className={`w-3 h-3 rounded-full shrink-0 ${cfg.dot}`} />
+          {/* ── Header ──────────────────────────────────────────── */}
+          <div className="px-8 py-5 flex items-center justify-between gap-4 border-b border-[#1c1c1c]">
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className={`w-1 h-9 rounded-full shrink-0 ${cfg.dot}`} />
               <div className="min-w-0">
-                <h2 className="text-lg font-bold text-gray-100 truncate">{client.client_name}</h2>
+                <h2 className="text-xl font-bold text-white truncate leading-snug">{client.client_name}</h2>
                 <div className="flex items-center gap-2 mt-0.5">
                   <HealthPill health={client.health} />
-                  <span className="text-[11px] text-gray-500">últimos 7d vs 7d anteriores</span>
+                  <span className="text-[11px] text-gray-600">últimos 7d vs 7d anteriores</span>
                 </div>
               </div>
             </div>
-            <button onClick={onClose} className="p-2 hover:bg-[#252525] rounded-xl text-gray-500 transition shrink-0">
+            <button onClick={onClose} className="p-2 rounded-xl text-gray-600 hover:text-gray-300 hover:bg-white/[0.05] transition shrink-0">
               <X size={18} />
             </button>
           </div>
 
-          {/* Body */}
+          {/* ── Stats bar ───────────────────────────────────────── */}
+          <div className="grid grid-cols-4 divide-x divide-[#1c1c1c] border-b border-[#1c1c1c]">
+            {stats.map(s => {
+              const pos     = s.delta === null ? null : s.invert ? s.delta < 0 : s.delta > 0
+              const neutral = s.delta === null || Math.abs(s.delta) < 0.1
+              const col     = neutral ? 'text-gray-600' : pos ? 'text-emerald-400' : 'text-rose-400'
+              const Icon    = neutral ? Minus : pos ? TrendingUp : TrendingDown
+              return (
+                <div key={s.label} className="px-6 py-5">
+                  <p className="text-[10px] font-bold text-gray-600 uppercase tracking-widest mb-2">{s.label}</p>
+                  <p className="text-[22px] font-bold text-white tabular-nums leading-none mb-2">{s.value}</p>
+                  {s.delta !== null ? (
+                    <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${col}`}>
+                      <Icon size={11} strokeWidth={2.5} />
+                      {s.delta > 0 ? '+' : ''}{s.delta.toFixed(1)}%
+                      <span className="text-[10px] text-gray-600 font-normal ml-0.5">vs sem. ant.</span>
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-gray-600">Sin datos previos</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* ── Body ────────────────────────────────────────────── */}
           <div className="px-8 py-7 space-y-7">
 
-            {/* Key metrics */}
-            <div>
-              <p className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-3">Métricas clave</p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <MetricTile
-                  label="Gasto 7d"
-                  value={ars(client.spend)}
-                  delta={client.spend_change}
-                  status={client.spend_change === null ? undefined : client.spend_change > 0 ? 'red' : 'green'}
-                  highlight
-                />
-                <MetricTile
-                  label={convLabel}
-                  value={client.conversions > 0 ? String(client.conversions) : '—'}
-                  delta={client.conversions_change}
-                  status={client.conversions_status === 'none' ? undefined : client.conversions_status}
-                />
-                <MetricTile
-                  label={cplLabel}
-                  value={client.cpl > 0 ? ars(client.cpl) : '—'}
-                  delta={client.cpl_change}
-                  status={client.cpl_status === 'none' ? undefined : client.cpl_status}
-                  invert
-                />
-                <MetricTile
-                  label="CTR (link clicks)"
-                  value={`${client.ctr.toFixed(2)}%`}
-                  delta={client.ctr_change}
-                  status={client.ctr_status}
-                />
-              </div>
-            </div>
-
             {/* Diagnosis */}
-            <div className={`rounded-xl border p-4 ${
-              client.health === 'priority'  ? 'bg-rose-500/10 border-rose-500/20'      :
-              client.health === 'review'    ? 'bg-amber-500/10 border-amber-500/20'    :
-              client.health === 'excellent' ? 'bg-emerald-500/10 border-emerald-500/20' :
-                                              'bg-blue-600/10 border-blue-500/20'
-            }`}>
-              <p className="text-sm font-bold text-gray-100 mb-1">{client.diagnosis}</p>
-              <p className="text-sm text-gray-400 mb-2">{client.insight}</p>
-              <p className="text-sm text-gray-300"><span className="font-semibold">Acción: </span>{client.action}</p>
-              {client.tip && (
-                <p className="text-xs text-gray-500 mt-2 pt-2 border-t border-white/5">
-                  <span className="font-semibold">Tip: </span>{client.tip}
+            <div className={`relative rounded-xl border overflow-hidden ${diagBg}`}>
+              <div className={`absolute left-0 top-0 bottom-0 w-[3px] ${cfg.dot}`} />
+              <div className="pl-6 pr-5 py-4">
+                <p className="text-sm font-bold text-gray-100 mb-1.5">{client.diagnosis}</p>
+                <p className="text-sm text-gray-400 leading-relaxed mb-2.5">{client.insight}</p>
+                <p className="text-sm text-gray-300">
+                  <span className="font-semibold text-gray-200">Acción · </span>{client.action}
                 </p>
-              )}
+                {client.tip && (
+                  <p className="text-xs text-gray-500 mt-2.5 pt-2.5 border-t border-white/[0.05]">
+                    <span className="font-semibold text-gray-400">Tip · </span>{client.tip}
+                  </p>
+                )}
+              </div>
             </div>
 
             {/* Monthly charts */}
             <MonthlyCharts accountId={client.account_id} clientName={client.client_name} />
 
             {/* Campaigns */}
-            <div className="bg-[#252525] rounded-xl border border-[#2a2a2a] px-6 py-5">
-              <div className="flex items-center gap-2 mb-4">
-                <BarChart2 size={13} className="text-gray-500" />
-                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Desglose por campaña</h3>
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <BarChart2 size={13} className="text-gray-600" />
+                <p className="text-[10px] font-bold text-gray-600 uppercase tracking-widest">Campañas activas</p>
               </div>
-              <CampaignSection accountId={client.account_id} />
-            </div>
-
-            {/* Trends */}
-            <div className="bg-[#252525] rounded-xl border border-[#2a2a2a] px-6 py-5">
-              <TrendSection client={client} convLabel={convLabel} cplLabel={cplLabel} />
+              <div className="bg-[#141414] rounded-xl border border-[#1e1e1e] px-6 py-5">
+                <CampaignSection accountId={client.account_id} />
+              </div>
             </div>
 
           </div>
