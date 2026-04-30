@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, Suspense } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import {
   Mail, Lock, Eye, EyeOff, ArrowRight, Pencil, BookOpen,
@@ -181,7 +181,6 @@ function RoleCard({ selected, onClick, icon: Icon, title, description, accent }:
 
 // ── Main inner component ──────────────────────────────────────────────────────
 function LoginInner() {
-  const router       = useRouter()
   const searchParams = useSearchParams()
   const supabase     = createSupabaseBrowser()
 
@@ -238,7 +237,7 @@ function LoginInner() {
           .from('profiles').select('role_selected').eq('id', session.user.id).single()
         if (!profile?.role_selected) { setUserId(session.user.id); setStep('role'); setLoading(false); return }
       }
-      router.push('/dashboard')
+      window.location.href = '/dashboard'
 
     } else {
       const { data, error } = await supabase.auth.signUp({
@@ -258,7 +257,7 @@ function LoginInner() {
       const { data: prof } = await supabase
         .from('profiles').select('role_selected').eq('id', data.user.id).single()
       if (prof?.role_selected) {
-        router.push('/dashboard')
+        window.location.href = '/dashboard'
       } else {
         setUserId(data.user.id)
         setStep('role')
@@ -271,7 +270,7 @@ function LoginInner() {
     if (!selectedRole || !userId) return
     setLoading(true)
     await supabase.from('profiles').update({ role: selectedRole, role_selected: true }).eq('id', userId)
-    router.push('/dashboard')
+    window.location.href = '/dashboard'
   }
 
   // ── ROLE PICKER ──────────────────────────────────────────────────────────────
