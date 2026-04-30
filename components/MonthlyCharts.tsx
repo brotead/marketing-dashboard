@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, memo } from 'react'
 import { TrendingUp, TrendingDown, Minus, Loader2 } from 'lucide-react'
 
 interface MonthlyData {
@@ -85,11 +85,14 @@ function DualChart({
   const curPts:  [number, number][] = curTrimmed.map((v, i) => [toX(i + 1), toY(v)])
   const prevPts: [number, number][] = prev.map((v, i)       => [toX(i + 1), toY(v)])
 
-  const curLine  = curve(curPts)
-  const prevLine = curve(prevPts.filter(([, y]) => isFinite(y)))
+  const curLine = useMemo(() => curve(curPts), [curPts])
+  const prevLine = useMemo(() => curve(prevPts.filter(([, y]) => isFinite(y))), [prevPts])
 
-  const f = curPts[0], l = curPts[curPts.length - 1]
-  const area = curLine ? `${curLine} L ${l[0].toFixed(1)},${PH.toFixed(1)} L ${f[0].toFixed(1)},${PH.toFixed(1)} Z` : ''
+  const area = useMemo(() => {
+    if (!curLine) return ''
+    const f = curPts[0], l = curPts[curPts.length - 1]
+    return `${curLine} L ${l[0].toFixed(1)},${PH.toFixed(1)} L ${f[0].toFixed(1)},${PH.toFixed(1)} Z`
+  }, [curLine, curPts, PH])
 
   // Y axis: 3 ticks (0, mid, max)
   const yTicks = [0, maxV / 2, maxV]
@@ -183,9 +186,13 @@ function ChartCard({
   )
 }
 
+// ── Pure helpers ─────────────────────────────────────────────────────────────
+
+function fmtD(s: string) { const [, m, d] = s.split('-'); return `${d}/${m}` }
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
-export default function MonthlyCharts({ accountId, clientName }: { accountId: string; clientName: string }) {
+function MonthlyCharts({ accountId, clientName }: { accountId: string; clientName: string }) {
   const [data,    setData]    = useState<MonthlyData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
@@ -198,8 +205,6 @@ export default function MonthlyCharts({ accountId, clientName }: { accountId: st
       .catch(e => setError(String(e)))
       .finally(() => setLoading(false))
   }, [accountId, clientName])
-
-  const fmtD = (s: string) => { const [, m, d] = s.split('-'); return `${d}/${m}` }
 
   return (
     <div>
@@ -270,3 +275,5 @@ export default function MonthlyCharts({ accountId, clientName }: { accountId: st
     </div>
   )
 }
+
+export default memo(MonthlyCharts)

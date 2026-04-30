@@ -24,9 +24,9 @@ const MONTHS = [
 
 export default function RendimientoPage() {
   const { canEdit } = useAuth()
-  const today = new Date()
-  const [year, setYear]   = useState(today.getFullYear())
-  const [month, setMonth] = useState(today.getMonth() + 1)
+  const today = useMemo(() => new Date(), [])
+  const [year, setYear]   = useState(() => today.getFullYear())
+  const [month, setMonth] = useState(() => today.getMonth() + 1)
 
   const [goals,       setGoals]       = useState<GoalEntry[]>([])
   const [windsorData, setWindsorData] = useState<CampaignData[]>([])
@@ -129,7 +129,7 @@ export default function RendimientoPage() {
       return { value: v, source: v !== null ? 'Windsor IG' : null }
     }
     return { value: null, source: null }
-  }, [budgets, igFollowers, year, month]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [budgets, windsorData, conversations, igFollowers, igBaselines, year, month]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const currentGoals = useMemo(
     () => goals.filter((g) => g.year === year && g.month === month),
@@ -183,26 +183,38 @@ export default function RendimientoPage() {
     )
   }
 
-  const kpiOrder: Record<GoalEntry['kpi'], number> = { mensajes: 0, conversiones: 1, seguidores: 2 }
+  const kpiOrder = useMemo<Record<GoalEntry['kpi'], number>>(
+    () => ({ mensajes: 0, conversiones: 1, seguidores: 2 }),
+    []
+  )
 
-  const sortedGoals = [...currentGoals].sort((a, b) => {
-    const kpiDiff = (kpiOrder[a.kpi] ?? 9) - (kpiOrder[b.kpi] ?? 9)
-    if (kpiDiff !== 0) return kpiDiff
-    return b.goal_value - a.goal_value
-  })
+  const sortedGoals = useMemo(
+    () => [...currentGoals].sort((a, b) => {
+      const kpiDiff = (kpiOrder[a.kpi] ?? 9) - (kpiOrder[b.kpi] ?? 9)
+      if (kpiDiff !== 0) return kpiDiff
+      return b.goal_value - a.goal_value
+    }),
+    [currentGoals, kpiOrder]
+  )
 
-  const statusCounts = currentGoals.reduce((acc, g) => {
-    const val = g.current_override != null ? g.current_override : (getAutoValue(g).value ?? 0)
-    const s = calcPacing(g.goal_value, val, year, month).status
-    acc[s] = (acc[s] ?? 0) + 1
-    return acc
-  }, {} as Record<string, number>)
+  const statusCounts = useMemo(
+    () => currentGoals.reduce((acc, g) => {
+      const val = g.current_override != null ? g.current_override : (getAutoValue(g).value ?? 0)
+      const s = calcPacing(g.goal_value, val, year, month).status
+      acc[s] = (acc[s] ?? 0) + 1
+      return acc
+    }, {} as Record<string, number>),
+    [currentGoals, getAutoValue, year, month]
+  )
 
-  const daysInMonth = new Date(year, month, 0).getDate()
-  const daysPassed =
-    year === today.getFullYear() && month === today.getMonth() + 1
-      ? today.getDate()
-      : daysInMonth
+  const { daysInMonth, daysPassed } = useMemo(() => {
+    const dim = new Date(year, month, 0).getDate()
+    const dp =
+      year === today.getFullYear() && month === today.getMonth() + 1
+        ? today.getDate()
+        : dim
+    return { daysInMonth: dim, daysPassed: dp }
+  }, [year, month, today])
 
   return (
     <div>

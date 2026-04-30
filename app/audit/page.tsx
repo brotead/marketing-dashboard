@@ -324,6 +324,10 @@ function MomBar({ label, current, prev, max, changeVal, format, invert }: {
   )
 }
 
+// ── Pure module-level helpers ─────────────────────────────────────────────────
+
+function fmtD(s: string): string { const [,m,d] = s.split('-'); return `${d}/${m}` }
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AuditPage() {
@@ -365,9 +369,14 @@ export default function AuditPage() {
 
   const momMaxCpl = useMemo(() => results.length > 0 ? Math.max(...results.map(r => Math.max(r.cpl, r.mom_cpl, 1))) : 1, [results])
   const momMaxCtr = useMemo(() => results.length > 0 ? Math.max(...results.map(r => Math.max(r.ctr, r.mom_ctr, 0.01))) : 1, [results])
-  const momByCpl = [...results].sort((a, b) => (b.mom_cpl_change ?? -Infinity) - (a.mom_cpl_change ?? -Infinity))
-  const momByCtr = [...results].sort((a, b) => (b.mom_ctr_change ?? -Infinity) - (a.mom_ctr_change ?? -Infinity))
-  const fmtD = (s: string) => { const [,m,d] = s.split('-'); return `${d}/${m}` }
+  const momByCpl = useMemo(
+    () => [...results].sort((a, b) => (b.mom_cpl_change ?? -Infinity) - (a.mom_cpl_change ?? -Infinity)),
+    [results],
+  )
+  const momByCtr = useMemo(
+    () => [...results].sort((a, b) => (b.mom_ctr_change ?? -Infinity) - (a.mom_ctr_change ?? -Infinity)),
+    [results],
+  )
   const updatedAt   = data?.updated_at
     ? new Date(data.updated_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
     : '—'
