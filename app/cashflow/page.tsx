@@ -687,13 +687,13 @@ export default function CashflowPage() {
   const activeBudgets = clientBudgets.filter((b) => !b.paused && b.campaign_name !== '__auto__')
   const pausedBudgets = clientBudgets.filter((b) => b.paused && b.campaign_name !== '__auto__')
 
-  const clientSummary = activeBudgets.reduce(
+  const clientSummary = clientBudgets.filter(b => b.campaign_name !== '__auto__').reduce(
     (acc, b) => {
       const spend = campaignSpend(b, monthBudgets, accounts, windsorCampaigns, windsorAdsets)
       const cf = calcCashflow(b.budget_total, spend, year, month)
       acc.budget += cf.budgetTotal
       acc.spend += cf.spendToDate
-      acc.daily += Math.max(cf.dailyRecommended, 0)
+      if (!b.paused) acc.daily += Math.max(cf.dailyRecommended, 0)
       return acc
     },
     { budget: 0, spend: 0, daily: 0 }

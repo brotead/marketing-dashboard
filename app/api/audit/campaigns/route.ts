@@ -16,9 +16,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'account_id requerido' }, { status: 400 })
     }
 
-    const [{ data: budgets }, { data: excluded }] = await Promise.all([
+    const [{ data: budgets }, { data: excluded }, { data: paused }] = await Promise.all([
       sb.from('budgets').select('client_name').eq('account_id', accountId).eq('source', 'facebook').limit(1),
       sb.from('excluded_campaigns').select('campaign_name_norm').eq('account_id', accountId).eq('source', 'facebook'),
+      sb.from('budgets').select('campaign_name').eq('account_id', accountId).eq('source', 'facebook').eq('paused', true),
     ])
 
     const clientName = budgets?.[0]?.client_name ?? accountId
@@ -29,6 +30,11 @@ export async function GET(req: NextRequest) {
     const excludedNorms = new Set(excluded?.map(e => e.campaign_name_norm) ?? [])
     if (excludedNorms.size > 0) {
       data.campaigns = data.campaigns.filter(c => !excludedNorms.has(normName(c.campaign)))
+    }
+
+    const pausedNorms = new Set(paused?.map(p => normName(p.campaign_name)) ?? [])
+    if (pausedNorms.size > 0) {
+      data.campaigns = data.campaigns.filter(c => !pausedNorms.has(normName(c.campaign)))
     }
 
     return NextResponse.json(data, {
