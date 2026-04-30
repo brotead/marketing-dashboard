@@ -111,13 +111,26 @@ export async function GET(req: NextRequest) {
 
   const maxDay = today.getDate() - 1
 
-  // Cumulative spend series
-  let sumC = 0, sumP = 0
+  // Daily spend series (not cumulative)
   const spendSeries = Array.from({ length: maxDay }, (_, i) => {
     const day = i + 1
-    sumC += curByDay[day]?.spend   ?? 0
-    sumP += prevByDay[day]?.spend  ?? 0
-    return { day, curSpend: sumC, prevSpend: sumP }
+    return {
+      day,
+      curSpend:  curByDay[day]?.spend  ?? 0,
+      prevSpend: prevByDay[day]?.spend ?? 0,
+    }
+  })
+
+  // Daily conversions series
+  const convSeries = Array.from({ length: maxDay }, (_, i) => {
+    const day = i + 1
+    const c = curByDay[day]
+    const p = prevByDay[day]
+    return {
+      day,
+      curConv:  c ? (isMsg ? c.messaging  : c.ig_visits) : 0,
+      prevConv: p ? (isMsg ? p.messaging  : p.ig_visits) : 0,
+    }
   })
 
   // Daily CTR series
@@ -136,6 +149,7 @@ export async function GET(req: NextRequest) {
     cur:  { spend: curAgg.spend,  conversions: curAgg.conversions,  ctr: ctr(curAgg),  cpl: cpl(curAgg)  },
     prev: { spend: prevAgg.spend, conversions: prevAgg.conversions, ctr: ctr(prevAgg), cpl: cpl(prevAgg) },
     spendSeries,
+    convSeries,
     ctrSeries,
     dateFrom:   fmt(curFrom),
     dateTo:     fmt(curTo),
