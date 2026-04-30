@@ -520,7 +520,7 @@ export default function CashflowPage() {
           next = next.filter(b => !(deleted.includes(b.campaign_id) && b.year === year && b.month === month))
           return next
         })
-      }, wAccounts)
+      })
     } catch { /* silent */ }
   }, [year, month])
 
