@@ -684,8 +684,9 @@ export default function CashflowPage() {
   const clientBudgets = selected
     ? deduplicateBudgets(monthBudgets.filter((b) => b.client_name === selected.client && b.source === selected.source))
     : []
-  const activeBudgets = clientBudgets.filter((b) => !b.paused && b.campaign_name !== '__auto__')
-  const pausedBudgets = clientBudgets.filter((b) => b.paused && b.campaign_name !== '__auto__')
+  const activeBudgets  = clientBudgets.filter((b) => !b.paused && b.campaign_name !== '__auto__')
+  const pausedBudgets  = clientBudgets.filter((b) =>  b.paused && b.campaign_name !== '__auto__')
+  const allCampaigns   = clientBudgets.filter((b) => b.campaign_name !== '__auto__')
 
   const clientSummary = clientBudgets.filter(b => b.campaign_name !== '__auto__').reduce(
     (acc, b) => {
@@ -1043,7 +1044,7 @@ export default function CashflowPage() {
               )}
 
               {/* Summary cards */}
-              {activeBudgets.length > 0 && (
+              {allCampaigns.length > 0 && (
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
                   <div className="bg-white dark:bg-[#111111] rounded-2xl border border-gray-100 dark:border-white/[0.06] px-5 py-4 shadow-sm">
                     <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Presupuesto total</p>
@@ -1145,7 +1146,7 @@ export default function CashflowPage() {
               </div>
 
               {/* Totals footer */}
-              {activeBudgets.length >= 2 && (
+              {allCampaigns.length >= 2 && (
                 <div className="bg-gray-50 dark:bg-[#252525] border border-gray-200 dark:border-[#2a2a2a] rounded-xl px-4 py-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4">
                   <div>
                     <p className="text-xs text-gray-400 dark:text-gray-400 mb-0.5">Total presupuesto</p>
