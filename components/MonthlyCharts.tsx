@@ -63,7 +63,8 @@ function DualChart({
   uid:       string
   formatTick:(v: number) => string
 }) {
-  const W = 300, H = 90
+  const W = 300, H = 110, L = 44, B = 16
+  const PH = H - B  // plot height (below X axis labels)
 
   // Filter out trailing zeros in current (days not yet passed)
   const lastNonZero = cur.reduce((acc, v, i) => v > 0 ? i : acc, -1)
@@ -77,9 +78,8 @@ function DualChart({
   const maxV = Math.max(...allVals)
   const rng  = Math.max(maxV, 0.001)
 
-  // Always start Y from 0 — keeps proportions honest and prevents 0-value days from plotting off-chart
-  const toX = (i: number, len: number) => (i / Math.max(len - 1, 1)) * W
-  const toY = (v: number) => H * 0.95 - (v / rng) * H * 0.88
+  const toX = (i: number, len: number) => L + (i / Math.max(len - 1, 1)) * (W - L)
+  const toY = (v: number) => PH * 0.95 - (v / rng) * PH * 0.87
 
   const curPts:  [number, number][] = curTrimmed.map((v, i) => [toX(i, curTrimmed.length), toY(v)])
   const prevPts: [number, number][] = prev.map((v, i)       => [toX(i, prev.length),       toY(v)])
@@ -88,52 +88,57 @@ function DualChart({
   const prevLine = curve(prevPts.filter(([, y]) => isFinite(y)))
 
   const f = curPts[0], l = curPts[curPts.length - 1]
-  const area = curLine ? `${curLine} L ${l[0].toFixed(1)},${H} L ${f[0].toFixed(1)},${H} Z` : ''
+  const area = curLine ? `${curLine} L ${l[0].toFixed(1)},${PH.toFixed(1)} L ${f[0].toFixed(1)},${PH.toFixed(1)} Z` : ''
 
-  // Axis labels: first and last value of current series
-  const firstVal = curTrimmed.find(v => v > 0) ?? 0
-  const lastVal  = curTrimmed[curTrimmed.length - 1] ?? 0
+  // Y axis: 3 ticks (0, mid, max)
+  const yTicks = [0, maxV / 2, maxV]
+
+  // X axis: day 1, midpoint, last day
+  const nDays = curTrimmed.length
+  const xTickIdxs = [...new Set([0, Math.floor((nDays - 1) / 2), nDays - 1])].filter(i => i >= 0)
 
   return (
-    <div className="flex flex-col gap-1 h-full">
-      <svg width="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="flex-1">
-        <defs>
-          <linearGradient id={uid} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%"   stopColor={color} stopOpacity="0.18" />
-            <stop offset="100%" stopColor={color} stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {/* Previous month — dashed gray */}
-        {prevLine && (
-          <path d={prevLine} fill="none" stroke="#3a3a3a" strokeWidth="1.2"
-            strokeDasharray="4 3" strokeLinecap="round" />
-        )}
-        {/* Current month — fill */}
-        {area && <path d={area} fill={`url(#${uid})`} />}
-        {/* Current month — line */}
-        {curLine && (
-          <path d={curLine} fill="none" stroke={color} strokeWidth="1.8"
-            strokeLinecap="round" strokeLinejoin="round" />
-        )}
-      </svg>
+    <svg width="100%" height="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+      <defs>
+        <linearGradient id={uid} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stopColor={color} stopOpacity="0.18" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
 
-      {/* Mini legend */}
-      <div className="flex items-center justify-between px-0.5">
-        <div className="flex items-center gap-3 text-[10px]">
-          <span className="flex items-center gap-1">
-            <span className="w-3 h-[1.5px] rounded-full inline-block" style={{ backgroundColor: color }} />
-            <span className="text-gray-500">Este mes</span>
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="w-3 inline-block border-t border-dashed border-[#3a3a3a]" />
-            <span className="text-gray-600">Mes ant.</span>
-          </span>
-        </div>
-        <span className="text-[10px] text-gray-700 tabular-nums">
-          {formatTick(firstVal)} → {formatTick(lastVal)}
-        </span>
-      </div>
-    </div>
+      {/* Y grid lines + labels */}
+      {yTicks.map((v, i) => (
+        <g key={i}>
+          <line x1={L} x2={W} y1={toY(v)} y2={toY(v)} stroke="#222" strokeWidth="0.7" />
+          <text x={L - 4} y={toY(v) + 3.5} textAnchor="end" fontSize="9" fill="#4b4b4b">
+            {formatTick(v)}
+          </text>
+        </g>
+      ))}
+
+      {/* X axis baseline */}
+      <line x1={L} x2={W} y1={PH} y2={PH} stroke="#2a2a2a" strokeWidth="0.8" />
+
+      {/* X tick labels (day numbers) */}
+      {xTickIdxs.map(idx => (
+        <text key={idx} x={toX(idx, nDays)} y={H - 2} textAnchor="middle" fontSize="9" fill="#4b4b4b">
+          {idx + 1}
+        </text>
+      ))}
+
+      {/* Previous month — dashed gray */}
+      {prevLine && (
+        <path d={prevLine} fill="none" stroke="#3a3a3a" strokeWidth="1.2"
+          strokeDasharray="4 3" strokeLinecap="round" />
+      )}
+      {/* Current month — fill */}
+      {area && <path d={area} fill={`url(#${uid})`} />}
+      {/* Current month — line */}
+      {curLine && (
+        <path d={curLine} fill="none" stroke={color} strokeWidth="1.8"
+          strokeLinecap="round" strokeLinejoin="round" />
+      )}
+    </svg>
   )
 }
 
