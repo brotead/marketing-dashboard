@@ -434,6 +434,7 @@ export default function CashflowPage() {
   const [editingTotal, setEditingTotal] = useState(false)
   const [totalInput, setTotalInput] = useState('')
   const [countdown, setCountdown] = useState(3600)
+  const [carryoverInfo, setCarryoverInfo] = useState<{ count: number; fromMonth: number } | null>(null)
 
   const fetchData = useCallback(async (force = false) => {
     setLoading(true)
@@ -446,9 +447,29 @@ export default function CashflowPage() {
       if (!windsorRes.ok) throw new Error('Error al conectar con Windsor')
       const windsorJson = await windsorRes.json()
       const accs: AccountData[]    = windsorJson.data      ?? []
-      const bs:   BudgetEntry[]    = await budgetRes.json()
+      let bs:     BudgetEntry[]    = await budgetRes.json()
       const wCampaigns: CampaignSpend[] = windsorJson.campaigns ?? []
       const wAdsets:    CampaignSpend[] = windsorJson.adsets    ?? []
+
+      // Auto-carryover: si el mes seleccionado no tiene entradas, copiar del mes anterior
+      const hasCurrentMonth = bs.some(b => b.year === year && b.month === month)
+      if (!hasCurrentMonth) {
+        try {
+          const cvRes = await fetch('/api/budgets/carryover', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ year, month }),
+          })
+          const cv = await cvRes.json()
+          if (cv.carried > 0) {
+            const freshRes = await fetch('/api/budgets', { cache: 'no-store' })
+            bs = await freshRes.json()
+            setCarryoverInfo({ count: cv.carried, fromMonth: cv.fromMonth })
+          }
+        } catch { /* silencioso, no bloquear el render */ }
+      } else {
+        setCarryoverInfo(null)
+      }
 
       setAccounts(accs)
       setWindsorCampaigns(wCampaigns)
@@ -961,6 +982,15 @@ export default function CashflowPage() {
           </button>
         </div>
       </div>
+
+      {carryoverInfo && (
+        <div className="flex items-center justify-between gap-3 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 text-blue-700 dark:text-blue-300 rounded-xl px-4 py-2.5 mb-4 text-sm">
+          <span>
+            <span className="font-semibold">{carryoverInfo.count} entradas</span> importadas automáticamente desde {MONTHS[carryoverInfo.fromMonth - 1]} · Podés editar los presupuestos para este mes.
+          </span>
+          <button onClick={() => setCarryoverInfo(null)} className="shrink-0 text-blue-400 hover:text-blue-600 dark:hover:text-blue-200 text-lg leading-none">×</button>
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-50 dark:bg-red-500/15 border border-red-200 dark:border-red-500/30 text-red-600 dark:text-red-400 rounded-xl p-3 mb-4 text-sm">{error}</div>
