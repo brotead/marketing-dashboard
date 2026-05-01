@@ -454,19 +454,26 @@ export default function CashflowPage() {
       // Auto-carryover: si el mes seleccionado no tiene entradas, copiar del mes anterior
       const hasCurrentMonth = bs.some(b => b.year === year && b.month === month)
       if (!hasCurrentMonth) {
-        try {
-          const cvRes = await fetch('/api/budgets/carryover', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ year, month }),
-          })
-          const cv = await cvRes.json()
-          if (cv.carried > 0) {
-            const freshRes = await fetch('/api/budgets', { cache: 'no-store' })
-            bs = await freshRes.json()
-            setCarryoverInfo({ count: cv.carried, fromMonth: cv.fromMonth })
-          }
-        } catch { /* silencioso, no bloquear el render */ }
+        const prevYear  = month === 1 ? year - 1 : year
+        const prevMonth = month === 1 ? 12 : month - 1
+        const prevBudgets = bs.filter(b => b.year === prevYear && b.month === prevMonth)
+        if (prevBudgets.length > 0) {
+          const newEntries: BudgetEntry[] = prevBudgets.map(b => ({
+            ...b,
+            year,
+            month,
+            spend_override: null,
+          }))
+          await Promise.all(newEntries.map(e =>
+            fetch('/api/budgets', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(e),
+            })
+          ))
+          bs = [...bs, ...newEntries]
+          setCarryoverInfo({ count: newEntries.length, fromMonth: prevMonth })
+        }
       } else {
         setCarryoverInfo(null)
       }
