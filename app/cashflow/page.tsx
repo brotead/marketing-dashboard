@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { RefreshCw, Plus, Pencil, AlertTriangle, Clock, Trash2, X, Sparkles } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import CampaignRow from '@/components/CampaignRow'
@@ -158,7 +158,7 @@ function campaignSpend(
   if (budget.spend_override != null) return budget.spend_override
 
   const accountBudgets = monthBudgets.filter(
-    (b) => b.account_id === budget.account_id && b.source === budget.source && !b.paused
+    (b) => b.account_id === budget.account_id && b.source === budget.source
   )
   const accCampaigns = windsorCampaigns.filter(
     (c) => c.account_id === budget.account_id && c.source === budget.source
@@ -182,9 +182,9 @@ function campaignSpend(
   // 3. Fall back to proportional distribution from account total
   const account = accounts.find((a) => a.account_id === budget.account_id && a.source === budget.source)
   if (!account) return 0
-  const activeBudgets = monthBudgets.filter((b) => b.account_id === budget.account_id && b.source === budget.source && !b.paused)
-  const accountTotalBudget = activeBudgets.reduce((s, b) => s + b.budget_total, 0)
-  if (accountTotalBudget === 0) return activeBudgets.length > 0 ? account.spend / activeBudgets.length : 0
+  const allAccountBudgets = monthBudgets.filter((b) => b.account_id === budget.account_id && b.source === budget.source)
+  const accountTotalBudget = allAccountBudgets.reduce((s, b) => s + b.budget_total, 0)
+  if (accountTotalBudget === 0) return allAccountBudgets.length > 0 ? account.spend / allAccountBudgets.length : 0
   return (budget.budget_total / accountTotalBudget) * account.spend
 }
 
@@ -520,7 +520,7 @@ export default function CashflowPage() {
           next = next.filter(b => !(deleted.includes(b.campaign_id) && b.year === year && b.month === month))
           return next
         })
-      }, wAccounts)
+      })
     } catch { /* silent */ }
   }, [year, month])
 
@@ -630,13 +630,13 @@ export default function CashflowPage() {
   useEffect(() => {
     const id = setInterval(() => {
       setCountdown(prev => {
-        if (prev <= 1) {
+        if (prev <= 60) {
           syncCampaigns()
           return 3600
         }
-        return prev - 1
+        return prev - 60
       })
-    }, 1000)
+    }, 60000)
     return () => clearInterval(id)
   }, [syncCampaigns])
 
@@ -681,30 +681,41 @@ export default function CashflowPage() {
     return 'bg-amber-400'
   }
 
-  const clientBudgets = selected
-    ? deduplicateBudgets(monthBudgets.filter((b) => b.client_name === selected.client && b.source === selected.source))
-    : []
-  const activeBudgets = clientBudgets.filter((b) => !b.paused && b.campaign_name !== '__auto__')
-  const pausedBudgets = clientBudgets.filter((b) => b.paused && b.campaign_name !== '__auto__')
+  const {
+    clientBudgets,
+    activeBudgets,
+    pausedBudgets,
+    allCampaigns,
+    clientSummary,
+  } = useMemo(() => {
+    const clientBudgets = selected
+      ? deduplicateBudgets(monthBudgets.filter((b) => b.client_name === selected.client && b.source === selected.source))
+      : []
+    const activeBudgets = clientBudgets.filter((b) => !b.paused && b.campaign_name !== '__auto__')
+    const pausedBudgets = clientBudgets.filter((b) =>  b.paused && b.campaign_name !== '__auto__')
+    const allCampaigns  = clientBudgets.filter((b) => b.campaign_name !== '__auto__')
 
-  const clientSummary = activeBudgets.reduce(
-    (acc, b) => {
-      const spend = campaignSpend(b, monthBudgets, accounts, windsorCampaigns, windsorAdsets)
-      const cf = calcCashflow(b.budget_total, spend, year, month)
-      acc.budget += cf.budgetTotal
-      acc.spend += cf.spendToDate
-      acc.daily += Math.max(cf.dailyRecommended, 0)
-      return acc
-    },
-    { budget: 0, spend: 0, daily: 0 }
-  )
+    const clientSummary = clientBudgets.filter(b => b.campaign_name !== '__auto__').reduce(
+      (acc, b) => {
+        const spend = campaignSpend(b, monthBudgets, accounts, windsorCampaigns, windsorAdsets)
+        const cf = calcCashflow(b.budget_total, spend, year, month)
+        acc.budget += cf.budgetTotal
+        acc.spend += cf.spendToDate
+        if (!b.paused) acc.daily += Math.max(cf.dailyRecommended, 0)
+        return acc
+      },
+      { budget: 0, spend: 0, daily: 0 }
+    )
+
+    return { clientBudgets, activeBudgets, pausedBudgets, allCampaigns, clientSummary }
+  }, [monthBudgets, selected, accounts, windsorCampaigns, windsorAdsets, year, month])
 
   const currentDailyRate = daysPassed > 0 ? clientSummary.spend / daysPassed : 0
   const projectedEOM = currentDailyRate * daysInMonth
   const isOverspending = clientSummary.budget > 0 && clientSummary.spend > clientSummary.budget
   const projectionExceeds = clientSummary.budget > 0 && projectedEOM > clientSummary.budget * 1.05
 
-  const handleSave = async (entry: BudgetEntry) => {
+  const handleSave = useCallback(async (entry: BudgetEntry) => {
     await fetch('/api/budgets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -718,10 +729,10 @@ export default function CashflowPage() {
       return [...prev, entry]
     })
     setModal(null)
-  }
+  }, [])
 
 
-  const handleDelete = async (entry: BudgetEntry) => {
+  const handleDelete = useCallback(async (entry: BudgetEntry) => {
     // Delete the budget entry for this month
     await fetch('/api/budgets', {
       method: 'DELETE',
@@ -743,9 +754,9 @@ export default function CashflowPage() {
       prev.filter((b) => !(b.campaign_id === entry.campaign_id && b.year === year && b.month === month))
     )
     setCampaignDeleteConfirm(null)
-  }
+  }, [year, month])
 
-  const deleteClient = async (clientName: string, source: Source) => {
+  const deleteClient = useCallback(async (clientName: string, source: Source) => {
     await fetch('/api/clients', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
@@ -754,9 +765,9 @@ export default function CashflowPage() {
     setBudgets(prev => prev.filter(b => !(b.client_name === clientName && b.source === source)))
     if (selected?.client === clientName && selected?.source === source) setSelected(null)
     setDeleteConfirm(null)
-  }
+  }, [selected])
 
-  const handlePause = async (entry: BudgetEntry) => {
+  const handlePause = useCallback(async (entry: BudgetEntry) => {
     const updated = { ...entry, paused: !entry.paused }
     await fetch('/api/budgets', {
       method: 'POST',
@@ -766,9 +777,9 @@ export default function CashflowPage() {
     setBudgets((prev) => prev.map((b) =>
       b.campaign_id === entry.campaign_id && b.year === year && b.month === month ? updated : b
     ))
-  }
+  }, [year, month])
 
-  const handleSpendOverride = async (entry: BudgetEntry, val: number | null) => {
+  const handleSpendOverride = useCallback(async (entry: BudgetEntry, val: number | null) => {
     const updated = { ...entry, spend_override: val }
     await fetch('/api/budgets', {
       method: 'POST',
@@ -778,9 +789,9 @@ export default function CashflowPage() {
     setBudgets((prev) => prev.map((b) =>
       b.campaign_id === entry.campaign_id && b.year === entry.year && b.month === entry.month ? updated : b
     ))
-  }
+  }, [])
 
-  const handleTotalSave = async () => {
+  const handleTotalSave = useCallback(async () => {
     const newTotal = parseFloat(totalInput.replace(/\./g, '').replace(',', '.'))
     if (isNaN(newTotal) || newTotal <= 0) { setEditingTotal(false); return }
     const currentTotal = activeBudgets.reduce((s, b) => s + b.budget_total, 0)
@@ -799,14 +810,14 @@ export default function CashflowPage() {
       return u ?? b
     }))
     setEditingTotal(false)
-  }
+  }, [activeBudgets, totalInput])
 
   function getClientAccountId(clientName: string, source: Source): string {
     return monthBudgets.find((b) => b.client_name === clientName && b.source === source)?.account_id ?? ''
   }
 
-  const metaClients = getClients('facebook')
-  const googleClients = getClients('google')
+  const metaClients   = useMemo(() => getClients('facebook'), [monthBudgets]) // eslint-disable-line react-hooks/exhaustive-deps
+  const googleClients = useMemo(() => getClients('google'),   [monthBudgets]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function ClientList({ source, clients, color }: { source: Source; clients: string[]; color: string }) {
     return (
@@ -1043,7 +1054,7 @@ export default function CashflowPage() {
               )}
 
               {/* Summary cards */}
-              {activeBudgets.length > 0 && (
+              {allCampaigns.length > 0 && (
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
                   <div className="bg-white dark:bg-[#111111] rounded-2xl border border-gray-100 dark:border-white/[0.06] px-5 py-4 shadow-sm">
                     <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Presupuesto total</p>
@@ -1145,7 +1156,7 @@ export default function CashflowPage() {
               </div>
 
               {/* Totals footer */}
-              {activeBudgets.length >= 2 && (
+              {allCampaigns.length >= 2 && (
                 <div className="bg-gray-50 dark:bg-[#252525] border border-gray-200 dark:border-[#2a2a2a] rounded-xl px-4 py-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4">
                   <div>
                     <p className="text-xs text-gray-400 dark:text-gray-400 mb-0.5">Total presupuesto</p>

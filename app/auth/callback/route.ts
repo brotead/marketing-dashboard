@@ -1,5 +1,4 @@
 import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function GET(request: NextRequest) {
@@ -10,19 +9,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/login?error=no_code`)
   }
 
-  const cookieStore = cookies()
+  // Collect cookies during exchangeCodeForSession to apply them on the response
+  const pendingCookies: { name: string; value: string; options: Record<string, unknown> }[] = []
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() { return cookieStore.getAll() },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options)
-          )
-        },
+        getAll() { return request.cookies.getAll() },
+        setAll(cookiesToSet) { pendingCookies.push(...cookiesToSet) },
       },
     }
   )
@@ -33,17 +29,19 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/login?error=auth_failed`)
   }
 
-  // Check if this user has already selected their role
   const { data: profile } = await supabase
     .from('profiles')
     .select('role_selected')
     .eq('id', data.user.id)
     .single()
 
-  // First-time user → send to role selection step
-  if (!profile?.role_selected) {
-    return NextResponse.redirect(`${origin}/login?setup=1`)
-  }
+  const destination = profile?.role_selected ? '/dashboard' : '/login?setup=1'
+  const response = NextResponse.redirect(`${origin}${destination}`)
 
-  return NextResponse.redirect(`${origin}/dashboard`)
+  // Write session cookies onto the redirect response so the browser receives them
+  pendingCookies.forEach(({ name, value, options }) =>
+    response.cookies.set(name, value, options as Parameters<typeof response.cookies.set>[2])
+  )
+
+  return response
 }

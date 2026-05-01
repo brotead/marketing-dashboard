@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import Image from 'next/image'
 import { RefreshCw, AlertTriangle, Eye, CheckCircle } from 'lucide-react'
 import type { FatigueAd } from '@/lib/types'
@@ -62,18 +62,29 @@ export default function CreativosPage() {
   }
 
   // Derived
-  const clients = Array.from(new Set(ads.map(a => a.account_name))).sort()
+  const clients = useMemo(
+    () => Array.from(new Set(ads.map(a => a.account_name))).sort(),
+    [ads]
+  )
 
-  const filtered = ads.filter(a => {
-    if (filterRec !== 'ALL' && a.recommendation !== filterRec) return false
-    if (filterClient !== 'ALL' && a.account_name !== filterClient) return false
-    return true
-  })
+  const filtered = useMemo(
+    () => ads.filter(a => {
+      if (filterRec !== 'ALL' && a.recommendation !== filterRec) return false
+      if (filterClient !== 'ALL' && a.account_name !== filterClient) return false
+      return true
+    }),
+    [ads, filterRec, filterClient]
+  )
 
-  const pausarCount  = ads.filter(a => a.recommendation === 'PAUSAR').length
-  const revisarCount = ads.filter(a => a.recommendation === 'REVISAR').length
-  const activoCount  = ads.filter(a => a.recommendation === 'ACTIVO').length
-  const totalBurned  = ads.filter(a => a.recommendation === 'PAUSAR').reduce((s, a) => s + a.spend_projection, 0)
+  const { pausarCount, revisarCount, activoCount, totalBurned } = useMemo(() => {
+    let pausar = 0, revisar = 0, activo = 0, burned = 0
+    for (const a of ads) {
+      if (a.recommendation === 'PAUSAR') { pausar++; burned += a.spend_projection }
+      else if (a.recommendation === 'REVISAR') revisar++
+      else if (a.recommendation === 'ACTIVO') activo++
+    }
+    return { pausarCount: pausar, revisarCount: revisar, activoCount: activo, totalBurned: burned }
+  }, [ads])
 
   // ─── Render ─────────────────────────────────────────────────────────────────
 

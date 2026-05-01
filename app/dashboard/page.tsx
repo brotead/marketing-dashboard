@@ -88,24 +88,25 @@ export default function DashboardPage() {
       : daysInMonth
   const pctExpected = (daysPassed / daysInMonth) * 100
 
-  // All unique clients in this month
-  const allClients = Array.from(new Set(monthBudgets.map((b) => b.client_name)))
-
-  // Separate paused (all campaigns paused) from active
-  const activeClients = allClients.filter(client => {
-    const cb = monthBudgets.filter(b => b.client_name === client)
-    return cb.some(b => !b.paused)
-  })
-  const pausedClients = allClients.filter(client => {
-    const cb = monthBudgets.filter(b => b.client_name === client)
-    return cb.length > 0 && cb.every(b => b.paused)
-  })
+  // All unique clients in this month, split into active / paused
+  const { allClients, activeClients, pausedClients } = useMemo(() => {
+    const allClients = Array.from(new Set(monthBudgets.map((b) => b.client_name)))
+    const activeClients = allClients.filter(client => {
+      const cb = monthBudgets.filter(b => b.client_name === client)
+      return cb.some(b => !b.paused)
+    })
+    const pausedClients = allClients.filter(client => {
+      const cb = monthBudgets.filter(b => b.client_name === client)
+      return cb.length > 0 && cb.every(b => b.paused)
+    })
+    return { allClients, activeClients, pausedClients }
+  }, [monthBudgets])
 
   // Precompute all per-client metrics once — eliminates O(n²) on every sort/render
   const clientMetrics = useMemo(() => {
     const map: Record<string, { spend: number; deviation: number }> = {}
     for (const client of allClients) {
-      const cb = monthBudgets.filter(b => b.client_name === client && !b.paused)
+      const cb = monthBudgets.filter(b => b.client_name === client)
       const totalBudget = cb.reduce((s, b) => s + b.budget_total, 0)
       const mId = cb.find(b => b.source === 'facebook')?.account_id
       const gId = cb.find(b => b.source === 'google')?.account_id
@@ -128,22 +129,30 @@ export default function DashboardPage() {
     }
   }), [activeClients, sortOrder, clientMetrics])
 
-  // Summary totals — only active (non-paused) accounts
-  const configuredMetaIds   = new Set(monthBudgets.filter(b => b.source === 'facebook' && !b.paused).map(b => b.account_id))
-  const configuredGoogleIds = new Set(monthBudgets.filter(b => b.source === 'google'   && !b.paused).map(b => b.account_id))
-  const totalMetaSpend   = accounts.filter(a => a.source === 'facebook' && configuredMetaIds.has(a.account_id)).reduce((s, a) => s + a.spend, 0)
-  const totalGoogleSpend = accounts.filter(a => a.source === 'google'   && configuredGoogleIds.has(a.account_id)).reduce((s, a) => s + a.spend, 0)
-  const totalSpend       = totalMetaSpend + totalGoogleSpend
-
-  const totalMetaBudget   = monthBudgets.filter(b => b.source === 'facebook' && !b.paused).reduce((s, b) => s + b.budget_total, 0)
-  const totalGoogleBudget = monthBudgets.filter(b => b.source === 'google'   && !b.paused).reduce((s, b) => s + b.budget_total, 0)
-  const totalBudget       = totalMetaBudget + totalGoogleBudget
+  // Summary totals — include paused campaigns (their budget and spend still count)
+  const {
+    totalMetaSpend, totalGoogleSpend, totalSpend,
+    totalMetaBudget, totalGoogleBudget, totalBudget,
+  } = useMemo(() => {
+    const configuredMetaIds   = new Set(monthBudgets.filter(b => b.source === 'facebook').map(b => b.account_id))
+    const configuredGoogleIds = new Set(monthBudgets.filter(b => b.source === 'google').map(b => b.account_id))
+    const totalMetaSpend   = accounts.filter(a => a.source === 'facebook' && configuredMetaIds.has(a.account_id)).reduce((s, a) => s + a.spend, 0)
+    const totalGoogleSpend = accounts.filter(a => a.source === 'google'   && configuredGoogleIds.has(a.account_id)).reduce((s, a) => s + a.spend, 0)
+    const totalSpend       = totalMetaSpend + totalGoogleSpend
+    const totalMetaBudget   = monthBudgets.filter(b => b.source === 'facebook').reduce((s, b) => s + b.budget_total, 0)
+    const totalGoogleBudget = monthBudgets.filter(b => b.source === 'google').reduce((s, b) => s + b.budget_total, 0)
+    const totalBudget       = totalMetaBudget + totalGoogleBudget
+    return { totalMetaSpend, totalGoogleSpend, totalSpend, totalMetaBudget, totalGoogleBudget, totalBudget }
+  }, [monthBudgets, accounts])
 
   // Use precomputed metrics — O(n) lookup instead of O(n²)
-  const activeCount = activeClients.filter(c => (clientMetrics[c]?.spend ?? 0) > 0).length
+  const activeCount = useMemo(
+    () => activeClients.filter(c => (clientMetrics[c]?.spend ?? 0) > 0).length,
+    [activeClients, clientMetrics],
+  )
 
   const handleClientClick = useCallback((client: string) => {
-    const cb = monthBudgets.filter(b => b.client_name === client && !b.paused)
+    const cb = monthBudgets.filter(b => b.client_name === client)
     const source = cb.find(b => b.source === 'facebook') ? 'facebook' : 'google'
     router.push(`/cashflow?client=${encodeURIComponent(client)}&source=${source}`)
   }, [monthBudgets, router])
