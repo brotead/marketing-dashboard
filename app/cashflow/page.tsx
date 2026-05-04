@@ -9,7 +9,6 @@ const CampaignFormModal = dynamic(() => import('@/components/CampaignFormModal')
 import type { AccountData, BudgetEntry, CampaignSpend } from '@/lib/types'
 import { calcCashflow } from '@/lib/calculations'
 import { appCache, TTL } from '@/lib/appCache'
-import { isBlocked } from '@/lib/blockedCampaigns'
 
 const MONTHS = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -281,7 +280,6 @@ async function autoSyncCampaigns(
   const addSeen = new Set<string>()
   for (const wc of windsorCampaigns) {
     if (!wc.account_id || wc.spend <= 0) continue
-    if (isBlocked(wc.campaign_name)) continue
     const wcKey = `${wc.account_id}|${wc.source}|${normName(wc.campaign_name)}`
     if (matchedKeys.has(wcKey) || addSeen.has(wcKey)) continue
     const acctKey = `${wc.account_id}|${wc.source}`
@@ -372,7 +370,7 @@ function PendingClientPanel({ client, source, windsorCampaigns, year, month, onR
 
     const suffix = source === 'facebook' ? 'fb' : 'gg'
     const ts = Date.now()
-    onResolved(campaigns.filter(wc => !isBlocked(wc.campaign_name)).map((wc, i) => ({
+    onResolved(campaigns.map((wc, i) => ({
       campaign_id:   `auto_${suffix}_${id.slice(-5)}_${ts}_${i}`,
       campaign_name: wc.campaign_name,
       client_name:   client,
@@ -462,30 +460,6 @@ export default function CashflowPage() {
       const wCampaigns: CampaignSpend[] = windsorJson.campaigns ?? []
       const wAdsets:    CampaignSpend[] = windsorJson.adsets    ?? []
 
-      // Cleanup: silently delete any budgets matching the permanent blacklist
-      const blockedBudgets = bs.filter(b => isBlocked(b.campaign_name))
-      if (blockedBudgets.length > 0) {
-        await Promise.all(blockedBudgets.flatMap(b => [
-          fetch('/api/budgets', {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ campaign_id: b.campaign_id, year: b.year, month: b.month }),
-          }),
-          fetch('/api/excluded-campaigns', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              account_id: b.account_id,
-              source: b.source,
-              campaign_name: b.campaign_name,
-              campaign_name_norm: normName(b.campaign_name),
-            }),
-          }),
-        ]))
-        bs = bs.filter(b => !isBlocked(b.campaign_name))
-        appCache.invalidate('budgets')
-      }
-
       // Auto-carryover: si el mes seleccionado no tiene entradas, copiar del mes anterior
       const hasCurrentMonth = bs.some(b => b.year === year && b.month === month)
       if (!hasCurrentMonth) {
@@ -526,14 +500,8 @@ export default function CashflowPage() {
           setSelected({ client: preClient, source: preSrc })
         } else {
           const mb = bs.filter((b) => b.year === year && b.month === month)
-          const metaClientNames = Array.from(new Set(mb.filter(b => b.source === 'facebook').map(b => b.client_name)))
-          const firstActive = metaClientNames
-            .filter(client => {
-              const cbs = mb.filter(b => b.client_name === client && b.source === 'facebook')
-              return !(cbs.length > 0 && cbs.every(b => b.paused))
-            })
-            .sort()[0]
-          if (firstActive) setSelected({ client: firstActive, source: 'facebook' })
+          const firstMeta = Array.from(new Set(mb.filter(b => b.source === 'facebook').map(b => b.client_name))).sort()[0]
+          if (firstMeta) setSelected({ client: firstMeta, source: 'facebook' })
         }
       }
 
@@ -652,7 +620,6 @@ export default function CashflowPage() {
         if (!accountToClient.has(acctKey)) continue          // account not linked to any client
         const wcKey = `${wc.account_id}|${wc.source}|${normName(wc.campaign_name)}`
         if (existingKeys.has(wcKey) || seen.has(wcKey)) continue  // already exists
-        if (isBlocked(wc.campaign_name)) continue
         seen.add(wcKey)
         const suffix = wc.source === 'facebook' ? 'fb' : 'gg'
         toAdd.push({
