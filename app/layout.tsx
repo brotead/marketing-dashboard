@@ -5,6 +5,7 @@ import Sidebar from '@/components/Sidebar'
 import { ThemeProvider } from '@/components/ThemeProvider'
 import { AuthProvider } from '@/contexts/AuthContext'
 import AppShell from '@/components/AppShell'
+import { DataPrefetcher } from '@/components/DataPrefetcher'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -29,6 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeProvider>
           <AuthProvider>
             <AppShell>
+              <DataPrefetcher />
               {children}
             </AppShell>
           </AuthProvider>

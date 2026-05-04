@@ -10,6 +10,7 @@ import type { GoalEntry, BudgetEntry, CampaignData } from '@/lib/types'
 import type { IgFollowerEntry } from '@/lib/windsor'
 import { calcPacing } from '@/lib/calculations'
 import clientConfigRaw from '@/data/client_config.json'
+import { appCache, TTL } from '@/lib/appCache'
 
 interface ClientConfig {
   fb_account_id?: string
@@ -42,23 +43,32 @@ export default function RendimientoPage() {
   const [showModal,    setShowModal]    = useState(false)
   const [editingGoal,  setEditingGoal]  = useState<GoalEntry | null>(null)
 
-  const fetchData = useCallback(async () => {
-    setLoading(true)
+  const fetchData = useCallback(async (force = false) => {
+    if (force) {
+      appCache.invalidateHard(`windsor-${year}-${month}`)
+      appCache.invalidateHard('budgets')
+      appCache.invalidateHard('goals')
+      appCache.invalidateHard(`kpis-${year}-${month}`)
+    }
+    const hasCached = appCache.has(`windsor-${year}-${month}`) && appCache.has('budgets') &&
+                      appCache.has('goals') && appCache.has(`kpis-${year}-${month}`)
+    if (!hasCached) setLoading(true)
     setError(null)
     baselinesInitialized.current = false
     try {
-      const [windsorRes, goalsRes, budgetsRes, kpisRes] = await Promise.all([
-        fetch(`/api/windsor?year=${year}&month=${month}`),
-        fetch('/api/goals',   { cache: 'no-store' }),
-        fetch('/api/budgets', { cache: 'no-store' }),
-        fetch(`/api/kpis?year=${year}&month=${month}`),
+      const [windsorJson, goalsData, budgetsData, kpisJson] = await Promise.all([
+        appCache.fetch(`windsor-${year}-${month}`, () =>
+          fetch(`/api/windsor?year=${year}&month=${month}`).then(r => r.json()), TTL.HOUR),
+        appCache.fetch('goals', () =>
+          fetch('/api/goals').then(r => r.json()), TTL.MIN5),
+        appCache.fetch('budgets', () =>
+          fetch('/api/budgets').then(r => r.json()), TTL.MIN5),
+        appCache.fetch(`kpis-${year}-${month}`, () =>
+          fetch(`/api/kpis?year=${year}&month=${month}`).then(r => r.json()), TTL.HOUR),
       ])
-      const windsorJson = await windsorRes.json()
       setWindsorData(windsorJson.data ?? [])
-      setGoals(await goalsRes.json())
-      setBudgets(await budgetsRes.json())
-
-      const kpisJson = await kpisRes.json()
+      setGoals(goalsData)
+      setBudgets(budgetsData)
       setConversations(kpisJson.conversations ?? {})
       setIgFollowers(kpisJson.igFollowers ?? [])
     } catch (e) {
@@ -149,6 +159,7 @@ export default function RendimientoPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(entry),
     })
+    appCache.invalidate('goals')
     setGoals((prev) => {
       const idx = prev.findIndex(
         (g) =>
@@ -170,6 +181,7 @@ export default function RendimientoPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ client_name: goal.client_name, year, month, kpi: goal.kpi }),
     })
+    appCache.invalidate('goals')
     setGoals((prev) =>
       prev.filter(
         (g) =>
@@ -250,7 +262,7 @@ export default function RendimientoPage() {
             </button>
           )}
           <button
-            onClick={fetchData}
+            onClick={() => fetchData(true)}
             className="flex items-center gap-2 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-gray-400 hover:text-gray-200 px-3 py-2.5 rounded-xl text-sm transition-all duration-150"
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />

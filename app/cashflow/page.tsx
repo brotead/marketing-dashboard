@@ -8,6 +8,7 @@ import dynamic from 'next/dynamic'
 const CampaignFormModal = dynamic(() => import('@/components/CampaignFormModal'), { ssr: false })
 import type { AccountData, BudgetEntry, CampaignSpend } from '@/lib/types'
 import { calcCashflow } from '@/lib/calculations'
+import { appCache, TTL } from '@/lib/appCache'
 
 const MONTHS = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -436,17 +437,25 @@ export default function CashflowPage() {
   const [countdown, setCountdown] = useState(3600)
 
   const fetchData = useCallback(async (force = false) => {
-    setLoading(true)
+    if (force) {
+      appCache.invalidateHard(`windsor-${year}-${month}`)
+      appCache.invalidateHard('budgets')
+    }
+    const hasCached = appCache.has(`windsor-${year}-${month}`) && appCache.has('budgets')
+    if (!hasCached) setLoading(true)
     setError(null)
     try {
-      const [windsorRes, budgetRes] = await Promise.all([
-        fetch(`/api/windsor?year=${year}&month=${month}${force ? '&force=true' : ''}`),
-        fetch('/api/budgets', { cache: 'no-store' }),
+      const [windsorJson, bs] = await Promise.all([
+        appCache.fetch<{ data: AccountData[]; campaigns: CampaignSpend[]; adsets: CampaignSpend[] }>(
+          `windsor-${year}-${month}`, async () => {
+            const r = await fetch(`/api/windsor?year=${year}&month=${month}${force ? '&force=true' : ''}`)
+            if (!r.ok) throw new Error('Error al conectar con Windsor')
+            return r.json()
+          }, TTL.HOUR),
+        appCache.fetch<BudgetEntry[]>('budgets', () =>
+          fetch('/api/budgets').then(r => r.json()), TTL.MIN5),
       ])
-      if (!windsorRes.ok) throw new Error('Error al conectar con Windsor')
-      const windsorJson = await windsorRes.json()
-      const accs: AccountData[]    = windsorJson.data      ?? []
-      const bs:   BudgetEntry[]    = await budgetRes.json()
+      const accs: AccountData[]         = windsorJson.data      ?? []
       const wCampaigns: CampaignSpend[] = windsorJson.campaigns ?? []
       const wAdsets:    CampaignSpend[] = windsorJson.adsets    ?? []
 
@@ -479,6 +488,7 @@ export default function CashflowPage() {
           return next
         })
       })
+      appCache.invalidate('budgets')
     } catch (e) {
       setError(String(e))
     } finally {
@@ -721,6 +731,7 @@ export default function CashflowPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(entry),
     })
+    appCache.invalidate('budgets')
     setBudgets((prev) => {
       const idx = prev.findIndex(
         (b) => b.campaign_id === entry.campaign_id && b.year === entry.year && b.month === entry.month
@@ -750,6 +761,7 @@ export default function CashflowPage() {
         campaign_name_norm: normName(entry.campaign_name),
       }),
     })
+    appCache.invalidate('budgets')
     setBudgets((prev) =>
       prev.filter((b) => !(b.campaign_id === entry.campaign_id && b.year === year && b.month === month))
     )
@@ -762,6 +774,7 @@ export default function CashflowPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ client_name: clientName, source }),
     })
+    appCache.invalidate('budgets')
     setBudgets(prev => prev.filter(b => !(b.client_name === clientName && b.source === source)))
     if (selected?.client === clientName && selected?.source === source) setSelected(null)
     setDeleteConfirm(null)
@@ -774,6 +787,7 @@ export default function CashflowPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updated),
     })
+    appCache.invalidate('budgets')
     setBudgets((prev) => prev.map((b) =>
       b.campaign_id === entry.campaign_id && b.year === year && b.month === month ? updated : b
     ))
@@ -786,6 +800,7 @@ export default function CashflowPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updated),
     })
+    appCache.invalidate('budgets')
     setBudgets((prev) => prev.map((b) =>
       b.campaign_id === entry.campaign_id && b.year === entry.year && b.month === entry.month ? updated : b
     ))
@@ -805,6 +820,7 @@ export default function CashflowPage() {
         body: JSON.stringify(entry),
       })
     ))
+    appCache.invalidate('budgets')
     setBudgets((prev) => prev.map((b) => {
       const u = updated.find((u) => u.campaign_id === b.campaign_id && u.year === b.year && u.month === b.month)
       return u ?? b

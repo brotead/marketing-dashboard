@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import Image from 'next/image'
 import { RefreshCw, AlertTriangle, Eye, CheckCircle } from 'lucide-react'
 import type { FatigueAd } from '@/lib/types'
+import { appCache, TTL } from '@/lib/appCache'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -45,12 +46,22 @@ export default function CreativosPage() {
   const [filterClient, setFilterClient] = useState<string>('ALL')
   const [expandedAd, setExpandedAd]     = useState<string | null>(null)
 
+  // Restore cached analysis on mount (instant re-navigation)
+  useEffect(() => {
+    const cached = appCache.peek<{ ads: FatigueAd[]; analyzed_at: string | null }>('fatigue')
+    if (cached) {
+      setAds(cached.ads ?? [])
+      setAnalyzedAt(cached.analyzed_at ?? null)
+    }
+  }, [])
+
   async function analyze() {
+    appCache.invalidateHard('fatigue')
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/fatigue')
-      const json = await res.json()
+      const json = await appCache.fetch('fatigue', () =>
+        fetch('/api/fatigue').then(r => r.json()), TTL.MIN5)
       if (json.error) throw new Error(json.error)
       setAds(json.ads ?? [])
       setAnalyzedAt(json.analyzed_at)

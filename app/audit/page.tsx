@@ -12,6 +12,7 @@ import type {
   Status, Health,
 } from '@/lib/audit'
 import MonthlyCharts from '@/components/MonthlyCharts'
+import { appCache, TTL } from '@/lib/appCache'
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
@@ -346,10 +347,15 @@ export default function AuditPage() {
   }, [])
 
   const load = useCallback(async (force = false) => {
-    setLoading(true); setError(null)
+    if (force) appCache.invalidateHard('audit')
+    const hasCached = appCache.has('audit')
+    if (!hasCached) setLoading(true)
+    setError(null)
     try {
-      const res  = await fetch(`/api/audit${force ? '?force=true' : ''}`)
-      const json = await res.json()
+      const json = await appCache.fetch('audit', async () => {
+        const res = await fetch(`/api/audit${force ? '?force=true' : ''}`)
+        return res.json()
+      }, TTL.MIN15)
       if (json.error) throw new Error(json.error)
       setData(json)
     } catch (e) {

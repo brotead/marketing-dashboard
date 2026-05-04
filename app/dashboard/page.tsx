@@ -9,6 +9,7 @@ import type { AccountData, BudgetEntry } from '@/lib/types'
 import { checklistProgress, trackingProgress } from '@/lib/onboarding'
 import type { OnboardingClient } from '@/lib/onboarding'
 import { useAuth } from '@/contexts/AuthContext'
+import { appCache, TTL } from '@/lib/appCache'
 
 const MONTHS = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -51,20 +52,28 @@ export default function DashboardPage() {
       .catch(() => {})
   }, [])
 
-  const fetchData = useCallback(async () => {
-    setLoading(true)
+  const fetchData = useCallback(async (force = false, silent = false) => {
+    if (force) {
+      appCache.invalidateHard(`windsor-${year}-${month}`)
+      appCache.invalidateHard('budgets')
+    }
+    const hasCached = appCache.has(`windsor-${year}-${month}`) && appCache.has('budgets')
+    if (!hasCached && !silent) setLoading(true)
     setError(null)
     try {
-      const [windsorRes, budgetRes] = await Promise.all([
-        fetch(`/api/windsor?year=${year}&month=${month}`),
-        fetch('/api/budgets', { cache: 'no-store' }),
+      const [windsorJson, bs] = await Promise.all([
+        appCache.fetch(`windsor-${year}-${month}`, async () => {
+          const r = await fetch(`/api/windsor?year=${year}&month=${month}`)
+          if (!r.ok) throw new Error('Error al conectar con Windsor')
+          return r.json()
+        }, TTL.HOUR),
+        appCache.fetch('budgets', () =>
+          fetch('/api/budgets').then(r => r.json()), TTL.MIN5),
       ])
-      if (!windsorRes.ok) throw new Error('Error al conectar con Windsor')
-      const windsorJson = await windsorRes.json()
       setAccounts(windsorJson.data ?? [])
-      setBudgets(await budgetRes.json())
+      setBudgets(bs)
     } catch (e) {
-      setError(String(e))
+      if (!silent) setError(String(e))
     } finally {
       setLoading(false)
     }
@@ -74,7 +83,7 @@ export default function DashboardPage() {
 
   // Auto-refresh every hour so budget/campaign changes made in Cashflow are reflected here
   useEffect(() => {
-    const id = setInterval(() => { fetchData() }, 60 * 60 * 1000)
+    const id = setInterval(() => { fetchData(true, true) }, 60 * 60 * 1000)
     return () => clearInterval(id)
   }, [fetchData])
 
@@ -219,7 +228,7 @@ export default function DashboardPage() {
             </button>
           )}
           <button
-            onClick={fetchData}
+            onClick={() => fetchData(true)}
             disabled={loading}
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 shadow-sm disabled:opacity-50"
           >
@@ -348,7 +357,7 @@ export default function DashboardPage() {
       {showNewClient && (
         <NewClientModal
           onClose={() => setShowNewClient(false)}
-          onCreated={() => { setShowNewClient(false); fetchData() }}
+          onCreated={() => { setShowNewClient(false); fetchData(true) }}
         />
       )}
     </div>
