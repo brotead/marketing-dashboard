@@ -435,6 +435,7 @@ export default function CashflowPage() {
   const [editingTotal, setEditingTotal] = useState(false)
   const [totalInput, setTotalInput] = useState('')
   const [countdown, setCountdown] = useState(3600)
+  const [carryoverInfo, setCarryoverInfo] = useState<{ count: number; fromMonth: number } | null>(null)
 
   const fetchData = useCallback(async (force = false) => {
     if (force) {
@@ -445,7 +446,7 @@ export default function CashflowPage() {
     if (!hasCached) setLoading(true)
     setError(null)
     try {
-      const [windsorJson, bs] = await Promise.all([
+      let [windsorJson, bs] = await Promise.all([
         appCache.fetch<{ data: AccountData[]; campaigns: CampaignSpend[]; adsets: CampaignSpend[] }>(
           `windsor-${year}-${month}`, async () => {
             const r = await fetch(`/api/windsor?year=${year}&month=${month}${force ? '&force=true' : ''}`)
@@ -455,9 +456,36 @@ export default function CashflowPage() {
         appCache.fetch<BudgetEntry[]>('budgets', () =>
           fetch('/api/budgets').then(r => r.json()), TTL.MIN5),
       ])
-      const accs: AccountData[]         = windsorJson.data      ?? []
+      const accs: AccountData[] = windsorJson.data ?? []
       const wCampaigns: CampaignSpend[] = windsorJson.campaigns ?? []
       const wAdsets:    CampaignSpend[] = windsorJson.adsets    ?? []
+
+      // Auto-carryover: si el mes seleccionado no tiene entradas, copiar del mes anterior
+      const hasCurrentMonth = bs.some(b => b.year === year && b.month === month)
+      if (!hasCurrentMonth) {
+        const prevYear  = month === 1 ? year - 1 : year
+        const prevMonth = month === 1 ? 12 : month - 1
+        const prevBudgets = bs.filter(b => b.year === prevYear && b.month === prevMonth)
+        if (prevBudgets.length > 0) {
+          const newEntries: BudgetEntry[] = prevBudgets.map(b => ({
+            ...b,
+            year,
+            month,
+            spend_override: null,
+          }))
+          await Promise.all(newEntries.map(e =>
+            fetch('/api/budgets', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(e),
+            })
+          ))
+          bs = [...bs, ...newEntries]
+          setCarryoverInfo({ count: newEntries.length, fromMonth: prevMonth })
+        }
+      } else {
+        setCarryoverInfo(null)
+      }
 
       setAccounts(accs)
       setWindsorCampaigns(wCampaigns)
@@ -977,6 +1005,15 @@ export default function CashflowPage() {
           </button>
         </div>
       </div>
+
+      {carryoverInfo && (
+        <div className="flex items-center justify-between gap-3 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 text-blue-700 dark:text-blue-300 rounded-xl px-4 py-2.5 mb-4 text-sm">
+          <span>
+            <span className="font-semibold">{carryoverInfo.count} entradas</span> importadas automáticamente desde {MONTHS[carryoverInfo.fromMonth - 1]} · Podés editar los presupuestos para este mes.
+          </span>
+          <button onClick={() => setCarryoverInfo(null)} className="shrink-0 text-blue-400 hover:text-blue-600 dark:hover:text-blue-200 text-lg leading-none">×</button>
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-50 dark:bg-red-500/15 border border-red-200 dark:border-red-500/30 text-red-600 dark:text-red-400 rounded-xl p-3 mb-4 text-sm">{error}</div>
