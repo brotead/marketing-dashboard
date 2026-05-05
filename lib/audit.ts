@@ -469,11 +469,14 @@ export async function runAudit(
   let total_spend   = 0
   let total_results = 0
 
+  const foundIds = new Set<string>()
+
   for (const r of recentRows) {
     if (!r.account_id || !allowedIds.has(r.account_id)) continue
     const recent = toMetrics(r)
-    if (recent.spend < 100) continue
+    if (recent.spend <= 0) continue
 
+    foundIds.add(r.account_id)
     const prev        = prevMap.get(r.account_id) ?? null
     const clientName  = clientNames[r.account_id] ?? r.account_name ?? r.account_id
     const clientType  = getClientType(clientName)
@@ -504,6 +507,46 @@ export async function runAudit(
       mom_cpl, mom_ctr,
       mom_cpl_change, mom_ctr_change,
       ...item,
+    })
+  }
+
+  // Include accounts that had no spend in Windsor (paused or no recent activity)
+  for (const accountId of allowedIds) {
+    if (foundIds.has(accountId) || accountId === '__pending__') continue
+    const clientName = clientNames[accountId] ?? accountId
+    const clientType = getClientType(clientName)
+    results.push({
+      account_id:          accountId,
+      client_name:         clientName,
+      client_type:         clientType,
+      score:               0,
+      health:              'stable',
+      spend:               0,
+      impressions:         0,
+      ctr:                 0,
+      cpm:                 0,
+      results:             0,
+      cpl:                 0,
+      conversions:         0,
+      conversions_change:  null,
+      conversions_status:  'none',
+      spend_change:        null,
+      ctr_change:          null,
+      cpm_change:          null,
+      cpl_change:          null,
+      ctr_status:          'yellow',
+      cpm_status:          'yellow',
+      cpl_status:          'none',
+      has_cpl:             false,
+      diagnosis:           'Sin actividad reciente',
+      action:              'Verificar que las campañas estén activas en Meta Ads.',
+      insight:             'No se registró gasto en los últimos 7 días para esta cuenta.',
+      tip:                 '',
+      tags:                [],
+      mom_cpl:             0,
+      mom_ctr:             0,
+      mom_cpl_change:      null,
+      mom_ctr_change:      null,
     })
   }
 
