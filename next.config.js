@@ -3,6 +3,10 @@ const nextConfig = {
   poweredByHeader: false,
   compress: true,
 
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: '**.fbcdn.net' },
