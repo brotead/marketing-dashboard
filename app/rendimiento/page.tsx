@@ -167,6 +167,11 @@ export default function RendimientoPage() {
       .map((b) => b.client_name),
   ])).sort(), [currentGoals, budgets, year, month])
 
+  const clientsWithoutGoals = useMemo(
+    () => allClients.filter(c => !currentGoals.some(g => g.client_name === c)),
+    [allClients, currentGoals]
+  )
+
   const handleSaveGoal = async (entry: GoalEntry) => {
     await fetch('/api/goals', {
       method: 'POST',
@@ -318,7 +323,7 @@ export default function RendimientoPage() {
         </div>
       )}
 
-      {!loading && !error && currentGoals.length === 0 && (
+      {!loading && !error && currentGoals.length === 0 && allClients.length === 0 && (
         <div className="text-center py-20 text-gray-400 dark:text-gray-500">
           <p className="text-lg mb-2">Sin objetivos configurados</p>
           <p className="text-sm">Hacé clic en &ldquo;Agregar objetivo&rdquo; para empezar</p>
@@ -350,6 +355,37 @@ export default function RendimientoPage() {
             )
           })}
         </div>
+      )}
+
+      {!loading && !error && clientsWithoutGoals.length > 0 && (
+        <>
+          {sortedGoals.length > 0 && (
+            <div className="flex items-center gap-3 mt-8 mb-4">
+              <div className="flex-1 border-t border-gray-200 dark:border-[#2a2a2a]" />
+              <span className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-1">Sin objetivos</span>
+              <div className="flex-1 border-t border-gray-200 dark:border-[#2a2a2a]" />
+            </div>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {clientsWithoutGoals.map(client => (
+              <div
+                key={client}
+                className="bg-white dark:bg-[#111111] rounded-2xl border border-dashed border-gray-200 dark:border-white/[0.08] px-5 py-5 shadow-sm flex flex-col gap-2"
+              >
+                <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 truncate">{client}</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500">Sin objetivos para este período</p>
+                {canEdit && (
+                  <button
+                    onClick={() => { setEditingGoal(null); setShowModal(true) }}
+                    className="mt-1 text-xs text-blue-500 hover:text-blue-400 font-semibold text-left"
+                  >
+                    + Agregar objetivo
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       {(showModal || editingGoal != null) && (
