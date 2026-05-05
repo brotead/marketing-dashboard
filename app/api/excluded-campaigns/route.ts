@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getWorkspaceCtx } from '@/lib/workspace'
 import { supabase } from '@/lib/supabase'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   const ctx = await getWorkspaceCtx()
   let query = supabase.from('excluded_campaigns').select('account_id, source, campaign_name_norm')

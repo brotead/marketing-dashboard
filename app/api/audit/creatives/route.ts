@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCreativeLifecycle } from '@/lib/audit'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(req: NextRequest) {
   try {
     const accountId = req.nextUrl.searchParams.get('account_id')

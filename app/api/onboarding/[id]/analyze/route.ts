@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js'
 import { getRelevantItems, PLATFORM_LABELS } from '@/lib/onboarding'
 import type { Platform } from '@/lib/onboarding'
 
+export const dynamic = 'force-dynamic'
+
 function sb() {
   return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!)
 }

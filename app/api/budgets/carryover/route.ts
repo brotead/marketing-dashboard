@@ -3,6 +3,8 @@ import { getBudgets, upsertBudget } from '@/lib/storage'
 import { getWorkspaceCtx } from '@/lib/workspace'
 import type { BudgetEntry } from '@/lib/types'
 
+export const dynamic = 'force-dynamic'
+
 export async function POST(req: NextRequest) {
   const ctx = await getWorkspaceCtx()
   const { year, month } = await req.json()

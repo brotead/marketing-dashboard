@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCampaignBreakdown, getClientType } from '@/lib/audit'
 import { supabase as sb } from '@/lib/supabase'
 
+export const dynamic = 'force-dynamic'
+
 function normName(s: string): string {
   return s.toLowerCase()
     .normalize('NFD').replace(/[̀-ͯ]/g, '')

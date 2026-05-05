@@ -3,6 +3,8 @@ import { fetchFatigueAds } from '@/lib/windsor'
 import { getBudgets } from '@/lib/storage'
 import { getWorkspaceCtx } from '@/lib/workspace'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   try {
     const ctx    = await getWorkspaceCtx()

@@ -3,6 +3,8 @@ import { runAudit } from '@/lib/audit'
 import { getBudgets } from '@/lib/storage'
 import { getWorkspaceCtx } from '@/lib/workspace'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(req: NextRequest) {
   const force = req.nextUrl.searchParams.get('force') === 'true'
   try {

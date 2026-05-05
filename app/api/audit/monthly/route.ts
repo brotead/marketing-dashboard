@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getClientType } from '@/lib/audit'
 
+export const dynamic = 'force-dynamic'
+
 const WINDSOR_FACEBOOK = 'https://connectors.windsor.ai/facebook'
 
 function n(v: unknown): number {
