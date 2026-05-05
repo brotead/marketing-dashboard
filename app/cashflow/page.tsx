@@ -415,15 +415,24 @@ function PendingClientPanel({ client, source, windsorCampaigns, year, month, onR
 }
 
 export default function CashflowPage() {
-  const today = new Date()
+  const _today = new Date()
+  const _initYear  = _today.getFullYear()
+  const _initMonth = _today.getMonth() + 1
+
+  const today = _today
   const { canEdit } = useAuth()
-  const [year, setYear] = useState(today.getFullYear())
-  const [month, setMonth] = useState(today.getMonth() + 1)
-  const [accounts, setAccounts] = useState<AccountData[]>([])
-  const [windsorCampaigns, setWindsorCampaigns] = useState<CampaignSpend[]>([])
-  const [windsorAdsets, setWindsorAdsets] = useState<CampaignSpend[]>([])
-  const [budgets, setBudgets] = useState<BudgetEntry[]>([])
-  const [loading, setLoading] = useState(true)
+  const [year, setYear] = useState(_initYear)
+  const [month, setMonth] = useState(_initMonth)
+  const [accounts, setAccounts] = useState<AccountData[]>(() =>
+    appCache.peek<{ data: AccountData[] }>(`windsor-${_initYear}-${_initMonth}`)?.data ?? [])
+  const [windsorCampaigns, setWindsorCampaigns] = useState<CampaignSpend[]>(() =>
+    appCache.peek<{ campaigns: CampaignSpend[] }>(`windsor-${_initYear}-${_initMonth}`)?.campaigns ?? [])
+  const [windsorAdsets, setWindsorAdsets] = useState<CampaignSpend[]>(() =>
+    appCache.peek<{ adsets: CampaignSpend[] }>(`windsor-${_initYear}-${_initMonth}`)?.adsets ?? [])
+  const [budgets, setBudgets] = useState<BudgetEntry[]>(() =>
+    appCache.peek<BudgetEntry[]>('budgets') ?? [])
+  const [loading, setLoading] = useState(() =>
+    !appCache.has(`windsor-${_initYear}-${_initMonth}`) || !appCache.has('budgets'))
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<Selection | null>(null)
   const [modal, setModal] = useState<ModalState | null>(null)

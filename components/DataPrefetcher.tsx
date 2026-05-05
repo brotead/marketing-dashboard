@@ -23,6 +23,9 @@ export function DataPrefetcher() {
 
     appCache.prefetch('audit', () =>
       fetch('/api/audit').then(r => r.json()), TTL.MIN15)
+
+    appCache.prefetch('onboarding', () =>
+      fetch('/api/onboarding').then(r => r.json()), TTL.MIN5)
   }, [])
 
   return null

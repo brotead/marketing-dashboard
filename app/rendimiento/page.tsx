@@ -25,20 +25,34 @@ const MONTHS = [
 
 export default function RendimientoPage() {
   const { canEdit } = useAuth()
+  const _now = new Date()
+  const _initYear  = _now.getFullYear()
+  const _initMonth = _now.getMonth() + 1
   const today = useMemo(() => new Date(), [])
-  const [year, setYear]   = useState(() => today.getFullYear())
-  const [month, setMonth] = useState(() => today.getMonth() + 1)
+  const [year, setYear]   = useState(_initYear)
+  const [month, setMonth] = useState(_initMonth)
 
-  const [goals,       setGoals]       = useState<GoalEntry[]>([])
-  const [windsorData, setWindsorData] = useState<CampaignData[]>([])
-  const [budgets,     setBudgets]     = useState<BudgetEntry[]>([])
+  const [goals,       setGoals]       = useState<GoalEntry[]>(() =>
+    appCache.peek<GoalEntry[]>('goals') ?? [])
+  const [windsorData, setWindsorData] = useState<CampaignData[]>(() =>
+    appCache.peek<{ data: CampaignData[] }>(`windsor-${_initYear}-${_initMonth}`)?.data ?? [])
+  const [budgets,     setBudgets]     = useState<BudgetEntry[]>(() =>
+    appCache.peek<BudgetEntry[]>('budgets') ?? [])
 
-  const [conversations, setConversations] = useState<Record<string, number>>({})
-  const [igFollowers, setIgFollowers] = useState<IgFollowerEntry[]>([])
+  const [conversations, setConversations] = useState<Record<string, number>>(() => {
+    const kpis = appCache.peek<{ conversations?: Record<string, number> }>(`kpis-${_initYear}-${_initMonth}`)
+    return kpis?.conversations ?? {}
+  })
+  const [igFollowers, setIgFollowers] = useState<IgFollowerEntry[]>(() => {
+    const kpis = appCache.peek<{ igFollowers?: IgFollowerEntry[] }>(`kpis-${_initYear}-${_initMonth}`)
+    return kpis?.igFollowers ?? []
+  })
   const [igBaselines, setIgBaselines] = useState<Record<string, number>>({})
   const baselinesInitialized = useRef(false)
 
-  const [loading,      setLoading]      = useState(true)
+  const [loading,      setLoading]      = useState(() =>
+    !appCache.has(`windsor-${_initYear}-${_initMonth}`) || !appCache.has('budgets') ||
+    !appCache.has('goals') || !appCache.has(`kpis-${_initYear}-${_initMonth}`))
   const [error,        setError]        = useState<string | null>(null)
   const [showModal,    setShowModal]    = useState(false)
   const [editingGoal,  setEditingGoal]  = useState<GoalEntry | null>(null)

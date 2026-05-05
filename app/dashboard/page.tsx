@@ -11,6 +11,14 @@ import type { OnboardingClient } from '@/lib/onboarding'
 import { useAuth } from '@/contexts/AuthContext'
 import { appCache, TTL } from '@/lib/appCache'
 
+function countIncomplete(clients: OnboardingClient[]): number {
+  return clients.filter(c => {
+    const acc = checklistProgress(c.platform, c.checklist)
+    const trk = trackingProgress(c.checklist)
+    return acc.checked < acc.total || trk.checked < trk.total
+  }).length
+}
+
 const MONTHS = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
@@ -23,31 +31,36 @@ function currency(n: number) {
 }
 
 export default function DashboardPage() {
-  const today  = new Date()
+  const _today = new Date()
+  const _initYear  = _today.getFullYear()
+  const _initMonth = _today.getMonth() + 1
+
+  const today  = _today
   const router = useRouter()
   const { canEdit, profile } = useAuth()
-  const [year,     setYear]     = useState(today.getFullYear())
-  const [month,    setMonth]    = useState(today.getMonth() + 1)
-  const [accounts, setAccounts] = useState<AccountData[]>([])
-  const [budgets,  setBudgets]  = useState<BudgetEntry[]>([])
-  const [loading,          setLoading]          = useState(true)
+  const [year,     setYear]     = useState(_initYear)
+  const [month,    setMonth]    = useState(_initMonth)
+  const [accounts, setAccounts] = useState<AccountData[]>(() =>
+    appCache.peek<{ data: AccountData[] }>(`windsor-${_initYear}-${_initMonth}`)?.data ?? [])
+  const [budgets,  setBudgets]  = useState<BudgetEntry[]>(() =>
+    appCache.peek<BudgetEntry[]>('budgets') ?? [])
+  const [loading,          setLoading]          = useState(() =>
+    !appCache.has(`windsor-${_initYear}-${_initMonth}`) || !appCache.has('budgets'))
   const [error,            setError]            = useState<string | null>(null)
-  const [onboardingCount,  setOnboardingCount]  = useState(0)
+  const [onboardingCount,  setOnboardingCount]  = useState(() => {
+    const cached = appCache.peek<OnboardingClient[]>('onboarding')
+    return Array.isArray(cached) ? countIncomplete(cached) : 0
+  })
   const [showNewClient,    setShowNewClient]    = useState(false)
   type SortOrder = 'priority' | 'spend_high' | 'spend_low'
   const [sortOrder, setSortOrder] = useState<SortOrder>('priority')
 
   useEffect(() => {
-    fetch('/api/onboarding')
-      .then(r => r.json())
-      .then((clients: OnboardingClient[]) => {
+    appCache.fetch<OnboardingClient[]>('onboarding', () =>
+      fetch('/api/onboarding').then(r => r.json()), TTL.MIN5)
+      .then((clients) => {
         if (!Array.isArray(clients)) return
-        const incomplete = clients.filter(c => {
-          const acc = checklistProgress(c.platform, c.checklist)
-          const trk = trackingProgress(c.checklist)
-          return acc.checked < acc.total || trk.checked < trk.total
-        })
-        setOnboardingCount(incomplete.length)
+        setOnboardingCount(countIncomplete(clients))
       })
       .catch(() => {})
   }, [])

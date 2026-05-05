@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import Image from 'next/image'
 import { RefreshCw, AlertTriangle, Eye, CheckCircle } from 'lucide-react'
 import type { FatigueAd } from '@/lib/types'
@@ -38,22 +38,15 @@ const SIGNAL_CONFIG = {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CreativosPage() {
-  const [ads, setAds]             = useState<FatigueAd[]>([])
-  const [analyzedAt, setAnalyzedAt] = useState<string | null>(null)
+  const [ads, setAds]             = useState<FatigueAd[]>(() =>
+    appCache.peek<{ ads: FatigueAd[] }>('fatigue')?.ads ?? [])
+  const [analyzedAt, setAnalyzedAt] = useState<string | null>(() =>
+    appCache.peek<{ analyzed_at: string | null }>('fatigue')?.analyzed_at ?? null)
   const [loading, setLoading]     = useState(false)
   const [error, setError]         = useState<string | null>(null)
   const [filterRec, setFilterRec] = useState<FatigueAd['recommendation'] | 'ALL'>('PAUSAR')
   const [filterClient, setFilterClient] = useState<string>('ALL')
   const [expandedAd, setExpandedAd]     = useState<string | null>(null)
-
-  // Restore cached analysis on mount (instant re-navigation)
-  useEffect(() => {
-    const cached = appCache.peek<{ ads: FatigueAd[]; analyzed_at: string | null }>('fatigue')
-    if (cached) {
-      setAds(cached.ads ?? [])
-      setAnalyzedAt(cached.analyzed_at ?? null)
-    }
-  }, [])
 
   async function analyze() {
     appCache.invalidateHard('fatigue')

@@ -15,7 +15,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // Prefetch all nav routes on mount so navigation is instant
   useEffect(() => {
     NAV_ROUTES.forEach(r => router.prefetch(r))
-  }, [router])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (noShell) {
     return <>{children}</>

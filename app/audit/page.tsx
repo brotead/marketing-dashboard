@@ -332,8 +332,9 @@ function fmtD(s: string): string { const [,m,d] = s.split('-'); return `${d}/${m
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AuditPage() {
-  const [data,     setData]     = useState<AuditData | null>(null)
-  const [loading,  setLoading]  = useState(true)
+  const [data,     setData]     = useState<AuditData | null>(() =>
+    appCache.peek<AuditData>('audit'))
+  const [loading,  setLoading]  = useState(() => !appCache.has('audit'))
   const [error,    setError]    = useState<string | null>(null)
   const [search,        setSearch]        = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')

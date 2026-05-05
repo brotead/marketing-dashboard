@@ -7,7 +7,7 @@ import {
   BarChart2, Target, LayoutDashboard, ShieldCheck, UserPlus,
   Menu, X, Settings, Sun, Moon, LogOut, Crown, Pencil, BookOpen,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, memo } from 'react'
 import { useTheme } from './ThemeProvider'
 import { useAuth } from '@/contexts/AuthContext'
 import UsersModal from './UsersModal'
@@ -20,7 +20,7 @@ const links = [
   { href: '/onboarding',  label: 'Cliente nuevo', icon: UserPlus },
 ]
 
-function NavLinks({ path, onClick }: { path: string; onClick?: () => void }) {
+const NavLinks = memo(function NavLinks({ path, onClick }: { path: string; onClick?: () => void }) {
   return (
     <>
       {links.map(({ href, label, icon: Icon }) => {
@@ -47,7 +47,7 @@ function NavLinks({ path, onClick }: { path: string; onClick?: () => void }) {
       })}
     </>
   )
-}
+})
 
 function ThemeToggle() {
   const { theme, toggle } = useTheme()
