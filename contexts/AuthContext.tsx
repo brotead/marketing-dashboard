@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { createSupabaseBrowser } from '@/lib/supabase-browser'
+import { appCache } from '@/lib/appCache'
 
 export interface Profile {
   id: string
@@ -67,7 +68,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       else setLoading(false)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // Clear ALL cached data when the user signs in or out — different users have different data
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
+        appCache.invalidateAllHard()
+      }
       setUser(session?.user ?? null)
       if (session?.user) {
         loadProfile(session.user.id)
