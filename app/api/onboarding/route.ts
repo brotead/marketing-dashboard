@@ -20,20 +20,15 @@ export async function GET() {
     const base = sb().from('onboarding_clients').select('*').order('created_at', { ascending: false })
 
     if (ctx.isSuperAdmin) {
-      const q = ctx.workspaceId ? base.eq('workspace_id', ctx.workspaceId) : base
-      const { data, error } = await q
+      // Admin sees all — no workspace filter (profile.workspace_id may be stale)
+      const { data, error } = await base
       if (error) throw error
       return NextResponse.json(data ?? [])
     }
 
     // Non-admin: filter by assigned client names (onboarding_clients.name = budgets.client_name)
     if (ctx.assignedClients === null) {
-      // Table missing — degrade to workspace scope or deny
-      if (ctx.workspaceId) {
-        const { data, error } = await base.eq('workspace_id', ctx.workspaceId)
-        if (error) throw error
-        return NextResponse.json(data ?? [])
-      }
+      // Table missing — deny
       return NextResponse.json([])
     }
     if (ctx.assignedClients.length === 0) return NextResponse.json([])
