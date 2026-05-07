@@ -17,13 +17,28 @@ function errMsg(err: unknown): string {
 export async function GET() {
   try {
     const ctx = await getWorkspaceCtx()
-    let query = sb().from('onboarding_clients').select('*').order('created_at', { ascending: false })
-    if (ctx.workspaceId) {
-      query = query.eq('workspace_id', ctx.workspaceId)
-    } else if (!ctx.isSuperAdmin) {
+    const base = sb().from('onboarding_clients').select('*').order('created_at', { ascending: false })
+
+    if (ctx.isSuperAdmin) {
+      const q = ctx.workspaceId ? base.eq('workspace_id', ctx.workspaceId) : base
+      const { data, error } = await q
+      if (error) throw error
+      return NextResponse.json(data ?? [])
+    }
+
+    // Non-admin: filter by assigned client names (onboarding_clients.name = budgets.client_name)
+    if (ctx.assignedClients === null) {
+      // Table missing — degrade to workspace scope or deny
+      if (ctx.workspaceId) {
+        const { data, error } = await base.eq('workspace_id', ctx.workspaceId)
+        if (error) throw error
+        return NextResponse.json(data ?? [])
+      }
       return NextResponse.json([])
     }
-    const { data, error } = await query
+    if (ctx.assignedClients.length === 0) return NextResponse.json([])
+
+    const { data, error } = await base.in('name', ctx.assignedClients)
     if (error) throw error
     return NextResponse.json(data ?? [])
   } catch (err) {

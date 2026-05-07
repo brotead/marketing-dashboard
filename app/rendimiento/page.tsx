@@ -74,9 +74,9 @@ export default function RendimientoPage() {
         appCache.fetch(`windsor-${year}-${month}`, () =>
           fetch(`/api/windsor?year=${year}&month=${month}`).then(r => r.json()), TTL.HOUR),
         appCache.fetch('goals', () =>
-          fetch('/api/goals').then(r => r.json()), TTL.MIN5),
+          fetch('/api/goals').then(r => r.json()), TTL.MIN1),
         appCache.fetch('budgets', () =>
-          fetch('/api/budgets').then(r => r.json()), TTL.MIN5),
+          fetch('/api/budgets').then(r => r.json()), TTL.MIN1),
         appCache.fetch(`kpis-${year}-${month}`, () =>
           fetch(`/api/kpis?year=${year}&month=${month}`).then(r => r.json()), TTL.HOUR),
       ])

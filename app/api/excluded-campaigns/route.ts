@@ -6,12 +6,9 @@ export const dynamic = 'force-dynamic'
 
 export async function GET() {
   const ctx = await getWorkspaceCtx()
+  if (!ctx.userId) return NextResponse.json([])
   let query = supabase.from('excluded_campaigns').select('account_id, source, campaign_name_norm')
-  if (ctx.workspaceId) {
-    query = query.eq('workspace_id', ctx.workspaceId)
-  } else if (!ctx.isSuperAdmin) {
-    return NextResponse.json([])
-  }
+  if (ctx.workspaceId) query = query.eq('workspace_id', ctx.workspaceId)
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json(data ?? [], { headers: { 'Cache-Control': 'no-store' } })

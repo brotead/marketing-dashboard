@@ -4,18 +4,23 @@ import type { WorkspaceCtx } from './workspace'
 
 export type { BudgetEntry, GoalEntry, Task, ChangelogEntry }
 
-// Apply workspace + assignment filters to a query.
-// Returns null when the user genuinely has no access (not admin, no workspace, no assignments).
+// Apply access filter to a query.
+// Admin: workspace-scoped (or global if no workspace).
+// Non-admin: ONLY client assignment filter — workspace filter intentionally skipped so a stale
+//   workspace_id on the profile never blocks access to correctly assigned clients.
+// Returns null → caller must return [] (user has no access).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function applyAccess(query: any, ctx: WorkspaceCtx, clientCol = 'client_name'): any {
-  if (ctx.workspaceId) {
-    query = query.eq('workspace_id', ctx.workspaceId)
+  if (ctx.isSuperAdmin) {
+    if (ctx.workspaceId) query = query.eq('workspace_id', ctx.workspaceId)
+    return query
   }
 
-  if (ctx.isSuperAdmin) return query
-
+  // Non-admin: client assignments are the authoritative access control
   if (ctx.assignedClients === null) {
-    return ctx.workspaceId ? query : null
+    // Table missing — graceful degradation: scope by workspace if possible, else deny
+    if (ctx.workspaceId) return query.eq('workspace_id', ctx.workspaceId)
+    return null
   }
   if (ctx.assignedClients.length === 0) return null
 
