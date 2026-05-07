@@ -21,6 +21,7 @@ interface AuthContextValue {
   profile: Profile | null
   role: 'editor' | 'reader' | 'super_admin' | null
   canEdit: boolean
+  isAdmin: boolean
   isSuperAdmin: boolean
   loading: boolean
   signOut: () => Promise<void>
@@ -32,6 +33,7 @@ const AuthContext = createContext<AuthContextValue>({
   profile: null,
   role: null,
   canEdit: false,
+  isAdmin: false,
   isSuperAdmin: false,
   loading: true,
   signOut: async () => {},
@@ -83,12 +85,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(null)
   }
 
-  const role        = profile?.role ?? null
-  const canEdit     = role === 'editor' || role === 'super_admin'
+  const role         = profile?.role ?? null
+  const canEdit      = role === 'editor' || role === 'super_admin'
+  const isAdmin      = role === 'super_admin'
   const isSuperAdmin = role === 'super_admin'
 
   return (
-    <AuthContext.Provider value={{ user, profile, role, canEdit, isSuperAdmin, loading, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ user, profile, role, canEdit, isAdmin, isSuperAdmin, loading, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   )

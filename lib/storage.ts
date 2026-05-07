@@ -13,6 +13,11 @@ export async function getBudgets(ctx: WorkspaceCtx): Promise<BudgetEntry[]> {
   } else if (!ctx.isSuperAdmin) {
     return []
   }
+  // Non-admin users: filter to assigned clients only
+  if (ctx.assignedClients !== null) {
+    if (ctx.assignedClients.length === 0) return []
+    query = query.in('client_name', ctx.assignedClients)
+  }
   const { data, error } = await query
   if (error) throw new Error(error.message)
   return data ?? []
@@ -59,6 +64,11 @@ export async function getGoals(ctx: WorkspaceCtx): Promise<GoalEntry[]> {
   } else if (!ctx.isSuperAdmin) {
     return []
   }
+  // Non-admin users: filter to assigned clients only
+  if (ctx.assignedClients !== null) {
+    if (ctx.assignedClients.length === 0) return []
+    query = query.in('client_name', ctx.assignedClients)
+  }
   const { data, error } = await query
   if (error) throw new Error(error.message)
   return data ?? []
@@ -94,6 +104,10 @@ export async function getTasks(ctx: WorkspaceCtx): Promise<Task[]> {
   } else if (!ctx.isSuperAdmin) {
     return []
   }
+  if (ctx.assignedClients !== null) {
+    if (ctx.assignedClients.length === 0) return []
+    query = query.in('client_name', ctx.assignedClients)
+  }
   const { data, error } = await query
   if (error) throw new Error(error.message)
   return data
@@ -125,6 +139,10 @@ export async function getChangelog(ctx: WorkspaceCtx): Promise<ChangelogEntry[]>
   } else if (!ctx.isSuperAdmin) {
     return []
   }
+  if (ctx.assignedClients !== null) {
+    if (ctx.assignedClients.length === 0) return []
+    query = query.in('client_name', ctx.assignedClients)
+  }
   const { data, error } = await query
   if (error) throw new Error(error.message)
   return data
@@ -139,5 +157,34 @@ export async function createChangelogEntry(entry: Omit<ChangelogEntry, 'id' | 'c
 
 export async function deleteChangelogEntry(id: string): Promise<void> {
   const { error } = await supabase.from('changelog').delete().eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+// ── Client assignments ──────────────────────────────────────────────────────────
+
+export async function getClientAssignments(userId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('user_client_assignments')
+    .select('client_name')
+    .eq('user_id', userId)
+    .order('client_name')
+  if (error?.code === '42P01') return []
+  if (error) throw new Error(error.message)
+  return (data ?? []).map((r: { client_name: string }) => r.client_name)
+}
+
+export async function assignClientToUser(userId: string, clientName: string): Promise<void> {
+  const { error } = await supabase
+    .from('user_client_assignments')
+    .upsert({ user_id: userId, client_name: clientName }, { onConflict: 'user_id,client_name' })
+  if (error) throw new Error(error.message)
+}
+
+export async function removeClientFromUser(userId: string, clientName: string): Promise<void> {
+  const { error } = await supabase
+    .from('user_client_assignments')
+    .delete()
+    .eq('user_id', userId)
+    .eq('client_name', clientName)
   if (error) throw new Error(error.message)
 }

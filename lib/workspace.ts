@@ -4,7 +4,10 @@ import { supabase as adminClient } from './supabase'
 
 export type WorkspaceCtx = {
   workspaceId: string | null
+  userId: string | null
+  role: 'super_admin' | 'editor' | 'reader' | null
   isSuperAdmin: boolean
+  assignedClients: string[] | null  // null = see all (admin), [...] = filter to these only
 }
 
 export async function getWorkspaceCtx(): Promise<WorkspaceCtx> {
@@ -22,20 +25,42 @@ export async function getWorkspaceCtx(): Promise<WorkspaceCtx> {
     )
 
     const { data: { user } } = await authClient.auth.getUser()
-    if (!user) return { workspaceId: null, isSuperAdmin: false }
+    if (!user) return { workspaceId: null, userId: null, role: null, isSuperAdmin: false, assignedClients: null }
 
     const { data } = await adminClient
       .from('profiles')
-      .select('workspace_id, role')
+      .select('workspace_id, role, id')
       .eq('id', user.id)
       .single()
 
+    const role = (data?.role ?? null) as WorkspaceCtx['role']
+    const isSuperAdmin = role === 'super_admin'
+
+    // Admins see all clients; non-admins only see their assigned clients
+    let assignedClients: string[] | null = null
+    if (!isSuperAdmin) {
+      const { data: assignments, error: assignErr } = await adminClient
+        .from('user_client_assignments')
+        .select('client_name')
+        .eq('user_id', user.id)
+
+      if (assignErr?.code === '42P01') {
+        // Table doesn't exist yet — degrade gracefully, show all clients
+        assignedClients = null
+      } else {
+        assignedClients = (assignments ?? []).map((a: { client_name: string }) => a.client_name)
+      }
+    }
+
     return {
       workspaceId: (data?.workspace_id as string | null) ?? null,
-      isSuperAdmin: data?.role === 'super_admin',
+      userId: user.id,
+      role,
+      isSuperAdmin,
+      assignedClients,
     }
   } catch {
-    return { workspaceId: null, isSuperAdmin: false }
+    return { workspaceId: null, userId: null, role: null, isSuperAdmin: false, assignedClients: null }
   }
 }
 

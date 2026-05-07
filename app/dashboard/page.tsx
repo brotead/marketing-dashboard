@@ -37,7 +37,7 @@ export default function DashboardPage() {
 
   const today  = _today
   const router = useRouter()
-  const { canEdit, profile } = useAuth()
+  const { canEdit, isAdmin, profile } = useAuth()
   const [year,     setYear]     = useState(_initYear)
   const [month,    setMonth]    = useState(_initMonth)
   const [accounts, setAccounts] = useState<AccountData[]>(() =>
@@ -232,7 +232,7 @@ export default function DashboardPage() {
           >
             {[2025, 2026, 2027].map((y) => <option key={y}>{y}</option>)}
           </select>
-          {canEdit && (
+          {isAdmin && (
             <button
               onClick={() => setShowNewClient(true)}
               className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-700 hover:to-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 shadow-sm shadow-violet-500/20"
