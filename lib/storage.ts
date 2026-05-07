@@ -4,21 +4,30 @@ import type { WorkspaceCtx } from './workspace'
 
 export type { BudgetEntry, GoalEntry, Task, ChangelogEntry }
 
+// Apply workspace + assignment filters to a query.
+// Returns null when the user genuinely has no access (not admin, no workspace, no assignments).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyAccess(query: any, ctx: WorkspaceCtx, clientCol = 'client_name'): any {
+  if (ctx.workspaceId) {
+    query = query.eq('workspace_id', ctx.workspaceId)
+  }
+
+  if (ctx.isSuperAdmin) return query
+
+  if (ctx.assignedClients === null) {
+    return ctx.workspaceId ? query : null
+  }
+  if (ctx.assignedClients.length === 0) return null
+
+  return query.in(clientCol, ctx.assignedClients)
+}
+
 // ── Budgets ────────────────────────────────────────────────────────────────────
 
 export async function getBudgets(ctx: WorkspaceCtx): Promise<BudgetEntry[]> {
-  let query = supabase.from('budgets').select('*')
-  if (ctx.workspaceId) {
-    query = query.eq('workspace_id', ctx.workspaceId)
-  } else if (!ctx.isSuperAdmin) {
-    return []
-  }
-  // Non-admin users: filter to assigned clients only
-  if (ctx.assignedClients !== null) {
-    if (ctx.assignedClients.length === 0) return []
-    query = query.in('client_name', ctx.assignedClients)
-  }
-  const { data, error } = await query
+  const q = applyAccess(supabase.from('budgets').select('*'), ctx)
+  if (!q) return []
+  const { data, error } = await q
   if (error) throw new Error(error.message)
   return data ?? []
 }
@@ -58,18 +67,9 @@ export async function removeClientAllData(clientName: string, source: string, ct
 // ── Goals ──────────────────────────────────────────────────────────────────────
 
 export async function getGoals(ctx: WorkspaceCtx): Promise<GoalEntry[]> {
-  let query = supabase.from('goals').select('*')
-  if (ctx.workspaceId) {
-    query = query.eq('workspace_id', ctx.workspaceId)
-  } else if (!ctx.isSuperAdmin) {
-    return []
-  }
-  // Non-admin users: filter to assigned clients only
-  if (ctx.assignedClients !== null) {
-    if (ctx.assignedClients.length === 0) return []
-    query = query.in('client_name', ctx.assignedClients)
-  }
-  const { data, error } = await query
+  const q = applyAccess(supabase.from('goals').select('*'), ctx)
+  if (!q) return []
+  const { data, error } = await q
   if (error) throw new Error(error.message)
   return data ?? []
 }
@@ -98,17 +98,12 @@ export async function removeGoal(clientName: string, year: number, month: number
 // ── Tasks ───────────────────────────────────────────────────────────────────────
 
 export async function getTasks(ctx: WorkspaceCtx): Promise<Task[]> {
-  let query = supabase.from('tasks').select('*').order('created_at', { ascending: false })
-  if (ctx.workspaceId) {
-    query = query.eq('workspace_id', ctx.workspaceId)
-  } else if (!ctx.isSuperAdmin) {
-    return []
-  }
-  if (ctx.assignedClients !== null) {
-    if (ctx.assignedClients.length === 0) return []
-    query = query.in('client_name', ctx.assignedClients)
-  }
-  const { data, error } = await query
+  const q = applyAccess(
+    supabase.from('tasks').select('*').order('created_at', { ascending: false }),
+    ctx,
+  )
+  if (!q) return []
+  const { data, error } = await q
   if (error) throw new Error(error.message)
   return data
 }
@@ -133,17 +128,12 @@ export async function deleteTask(id: string): Promise<void> {
 // ── Changelog ───────────────────────────────────────────────────────────────────
 
 export async function getChangelog(ctx: WorkspaceCtx): Promise<ChangelogEntry[]> {
-  let query = supabase.from('changelog').select('*').order('created_at', { ascending: false }).limit(300)
-  if (ctx.workspaceId) {
-    query = query.eq('workspace_id', ctx.workspaceId)
-  } else if (!ctx.isSuperAdmin) {
-    return []
-  }
-  if (ctx.assignedClients !== null) {
-    if (ctx.assignedClients.length === 0) return []
-    query = query.in('client_name', ctx.assignedClients)
-  }
-  const { data, error } = await query
+  const q = applyAccess(
+    supabase.from('changelog').select('*').order('created_at', { ascending: false }).limit(300),
+    ctx,
+  )
+  if (!q) return []
+  const { data, error } = await q
   if (error) throw new Error(error.message)
   return data
 }

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   X, Users, Shield, BookOpen, Pencil, Trash2, Ban, RefreshCw,
   Crown, KeyRound, Eye, EyeOff, Check, UserCog, Loader2,
-  AlertTriangle, Copy, Save, RotateCcw, CheckCircle2,
+  AlertTriangle, Copy, Save, RotateCcw, CheckCircle2, Search,
 } from 'lucide-react'
 import { createSupabaseBrowser } from '@/lib/supabase-browser'
 import type { Profile } from '@/contexts/AuthContext'
@@ -92,6 +92,7 @@ export default function UsersModal({ onClose }: Props) {
   const [allClients,      setAllClients]      = useState<string[]>([])
   const [assignLoading,   setAssignLoading]   = useState(false)
   const [tableExists,     setTableExists]     = useState(true)
+  const [clientSearch,    setClientSearch]    = useState('')
 
   // ── Password change state ────────────────────────────────────────────────────
   const [changingPwId, setChangingPwId] = useState<string | null>(null)
@@ -183,12 +184,14 @@ export default function UsersModal({ onClose }: Props) {
   function discardDraft() {
     setDraft(emptyDraft())
     setAssigningUserId(null)
+    setClientSearch('')
   }
 
   // ── Open assignment panel ─────────────────────────────────────────────────────
   async function openAssignPanel(uid: string) {
     if (assigningUserId === uid) { setAssigningUserId(null); return }
     setAssigningUserId(uid)
+    setClientSearch('')
 
     // Already loaded this user's assignments into draft
     if (draft.assignments[uid]) return
@@ -321,7 +324,7 @@ export default function UsersModal({ onClose }: Props) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
       <div
-        className="relative w-full max-w-lg bg-white dark:bg-[#111] border border-gray-200 dark:border-[#222] rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+        className="relative w-full max-w-xl bg-white dark:bg-[#111] border border-gray-200 dark:border-[#222] rounded-2xl shadow-2xl overflow-hidden flex flex-col"
         style={{ maxHeight: '90vh' }}
         onClick={e => e.stopPropagation()}
       >
@@ -410,14 +413,18 @@ export default function UsersModal({ onClose }: Props) {
 
                       {/* Admin controls for other non-admin users */}
                       {!isMe(user.id) && user.role !== 'super_admin' && isSuperAdmin && !isStagedDelete && (
-                        <div className="flex items-center gap-1 shrink-0">
-                          {/* Assign clients */}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {/* Assign clients — visible text button */}
                           <button
                             onClick={() => openAssignPanel(user.id)}
-                            title="Asignar clientes"
-                            className={`p-1.5 rounded-lg transition ${assigningUserId === user.id ? 'text-blue-400 bg-blue-500/10' : 'text-gray-400 hover:text-blue-400 hover:bg-blue-500/10'}`}
+                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition border ${
+                              assigningUserId === user.id
+                                ? 'text-blue-400 bg-blue-500/15 border-blue-500/30'
+                                : 'text-blue-400 bg-blue-500/5 border-blue-500/20 hover:bg-blue-500/15'
+                            }`}
                           >
-                            <UserCog size={13} />
+                            <UserCog size={12} />
+                            Gestionar accesos
                           </button>
                           {/* Role dropdown */}
                           <select
@@ -470,18 +477,22 @@ export default function UsersModal({ onClose }: Props) {
 
                     {/* Assignment panel */}
                     {assigningUserId === user.id && isSuperAdmin && !isStagedDelete && (
-                      <div className="mx-6 mb-3 rounded-xl border border-blue-500/20 bg-blue-500/5 overflow-hidden">
-                        <div className="flex items-center justify-between px-4 py-2.5 bg-blue-500/10 border-b border-blue-500/15">
-                          <p className="text-xs font-semibold text-blue-400">
-                            Clientes para {user.name ?? user.email.split('@')[0]}
-                          </p>
-                          <button onClick={() => setAssigningUserId(null)} className="text-blue-400/60 hover:text-blue-400 transition">
-                            <X size={12} />
+                      <div className="mx-6 mb-4 rounded-xl border border-blue-500/25 bg-[#0a0f1e] dark:bg-[#080d1a] overflow-hidden shadow-lg shadow-blue-950/30">
+                        {/* Panel header */}
+                        <div className="flex items-center justify-between px-4 py-3 bg-blue-600/10 border-b border-blue-500/20">
+                          <div className="flex items-center gap-2">
+                            <UserCog size={13} className="text-blue-400" />
+                            <p className="text-xs font-bold text-blue-300">
+                              Accesos de {user.name ?? user.email.split('@')[0]}
+                            </p>
+                          </div>
+                          <button onClick={() => { setAssigningUserId(null); setClientSearch('') }} className="text-blue-400/50 hover:text-blue-300 transition p-0.5 rounded">
+                            <X size={13} />
                           </button>
                         </div>
 
                         {assignLoading && !draft.assignments[user.id] ? (
-                          <div className="flex items-center justify-center gap-2 py-5 text-xs text-gray-400">
+                          <div className="flex items-center justify-center gap-2 py-6 text-xs text-gray-400">
                             <Loader2 size={13} className="animate-spin" /> Cargando clientes…
                           </div>
                         ) : !tableExists ? (
@@ -494,44 +505,63 @@ export default function UsersModal({ onClose }: Props) {
                         ) : allClients.length === 0 ? (
                           <div className="p-4 text-xs text-gray-400">No hay clientes en el sistema.</div>
                         ) : (
-                          <div className="p-3 space-y-0.5 max-h-44 overflow-y-auto">
-                            {allClients.map(client => {
-                              const assigned = (draft.assignments[user.id]?.current ?? []).includes(client)
-                              const wasAssigned = (draft.assignments[user.id]?.original ?? []).includes(client)
-                              const changed = assigned !== wasAssigned
-                              return (
-                                <label key={client} className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white/5 cursor-pointer transition group">
-                                  <div className={`w-4 h-4 rounded flex items-center justify-center border transition shrink-0 ${
-                                    assigned ? 'bg-blue-600 border-blue-600' : 'border-gray-300 dark:border-[#444] group-hover:border-blue-400'
-                                  }`}>
-                                    {assigned && <Check size={9} className="text-white" />}
-                                  </div>
-                                  <input
-                                    type="checkbox"
-                                    className="sr-only"
-                                    checked={assigned}
-                                    onChange={() => toggleClientInDraft(user.id, client)}
-                                  />
-                                  <span className={`text-xs flex-1 ${changed ? 'font-semibold' : ''} ${assigned ? 'text-gray-800 dark:text-gray-200' : 'text-gray-400 dark:text-gray-500'}`}>
-                                    {client}
-                                  </span>
-                                  {changed && (
-                                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${assigned ? 'text-emerald-400 bg-emerald-500/10' : 'text-red-400 bg-red-500/10'}`}>
-                                      {assigned ? '+' : '−'}
-                                    </span>
-                                  )}
-                                </label>
-                              )
-                            })}
-                          </div>
+                          <>
+                            {/* Search */}
+                            <div className="px-3 pt-3 pb-2">
+                              <div className="relative">
+                                <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                                <input
+                                  type="text"
+                                  value={clientSearch}
+                                  onChange={e => setClientSearch(e.target.value)}
+                                  placeholder="Buscar cliente…"
+                                  className="w-full pl-7 pr-3 py-1.5 text-[11px] bg-white/5 border border-white/10 rounded-lg text-gray-300 placeholder:text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500/40 transition"
+                                />
+                              </div>
+                            </div>
+                            {/* Client list */}
+                            <div className="px-3 pb-2 space-y-0.5 max-h-48 overflow-y-auto">
+                              {allClients
+                                .filter(c => !clientSearch || c.toLowerCase().includes(clientSearch.toLowerCase()))
+                                .map(client => {
+                                  const assigned = (draft.assignments[user.id]?.current ?? []).includes(client)
+                                  const wasAssigned = (draft.assignments[user.id]?.original ?? []).includes(client)
+                                  const changed = assigned !== wasAssigned
+                                  return (
+                                    <label key={client} className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white/5 cursor-pointer transition group">
+                                      <div className={`w-4 h-4 rounded flex items-center justify-center border transition shrink-0 ${
+                                        assigned ? 'bg-blue-600 border-blue-600' : 'border-gray-600 group-hover:border-blue-400'
+                                      }`}>
+                                        {assigned && <Check size={9} className="text-white" />}
+                                      </div>
+                                      <input type="checkbox" className="sr-only" checked={assigned} onChange={() => toggleClientInDraft(user.id, client)} />
+                                      <span className={`text-xs flex-1 truncate ${changed ? 'font-semibold' : ''} ${assigned ? 'text-gray-100' : 'text-gray-500'}`}>
+                                        {client}
+                                      </span>
+                                      {changed && (
+                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md shrink-0 ${assigned ? 'text-emerald-400 bg-emerald-500/15' : 'text-red-400 bg-red-500/15'}`}>
+                                          {assigned ? '+' : '−'}
+                                        </span>
+                                      )}
+                                    </label>
+                                  )
+                                })}
+                              {clientSearch && !allClients.some(c => c.toLowerCase().includes(clientSearch.toLowerCase())) && (
+                                <p className="py-3 text-center text-[11px] text-gray-500">Sin resultados</p>
+                              )}
+                            </div>
+                          </>
                         )}
 
-                        {tableExists && allClients.length > 0 && (
-                          <div className="px-4 py-2 border-t border-blue-500/15 text-[11px] text-gray-400">
-                            {(draft.assignments[user.id]?.current ?? []).length} de {allClients.length} cliente(s) asignado(s)
-                            {assignChanged > 0 && <span className="ml-2 text-amber-400">· {assignChanged} sin guardar</span>}
-                          </div>
-                        )}
+                        {/* Panel footer */}
+                        <div className="px-4 py-2.5 border-t border-blue-500/15 flex items-center justify-between">
+                          <span className="text-[11px] text-gray-500">
+                            {(draft.assignments[user.id]?.current ?? []).length} / {allClients.length} asignado(s)
+                          </span>
+                          {assignChanged > 0 && (
+                            <span className="text-[11px] text-amber-400 font-semibold">{assignChanged} cambio{assignChanged !== 1 ? 's' : ''} pendiente{assignChanged !== 1 ? 's' : ''} · guardar abajo</span>
+                          )}
+                        </div>
                       </div>
                     )}
 

@@ -463,7 +463,7 @@ export default function CashflowPage() {
             return r.json()
           }, TTL.HOUR),
         appCache.fetch<BudgetEntry[]>('budgets', () =>
-          fetch('/api/budgets').then(r => r.json()), TTL.MIN5),
+          fetch('/api/budgets').then(r => r.json()), TTL.MIN1),
       ])
       const accs: AccountData[] = windsorJson.data ?? []
       const wCampaigns: CampaignSpend[] = windsorJson.campaigns ?? []

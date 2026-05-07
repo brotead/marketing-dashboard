@@ -81,7 +81,7 @@ export default function DashboardPage() {
           return r.json()
         }, TTL.HOUR),
         appCache.fetch('budgets', () =>
-          fetch('/api/budgets').then(r => r.json()), TTL.MIN5),
+          fetch('/api/budgets').then(r => r.json()), TTL.MIN1),
       ])
       setAccounts(windsorJson.data ?? [])
       setBudgets(bs)
@@ -94,9 +94,9 @@ export default function DashboardPage() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  // Auto-refresh every hour so budget/campaign changes made in Cashflow are reflected here
+  // Auto-refresh every 2 minutes so assignment changes from admin appear automatically
   useEffect(() => {
-    const id = setInterval(() => { fetchData(true, true) }, 60 * 60 * 1000)
+    const id = setInterval(() => { fetchData(false, true) }, 2 * 60 * 1000)
     return () => clearInterval(id)
   }, [fetchData])
 
