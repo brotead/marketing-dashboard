@@ -17,8 +17,10 @@ const SETUP_SQL = `CREATE TABLE IF NOT EXISTS user_client_assignments (
   UNIQUE(user_id, client_name)
 );`
 
-// POST /api/setup — one-time initial setup (admin only)
-// Creates brotead@gmail.com admin, demotes fdiaz to editor, assigns all clients to fdiaz
+// POST /api/setup — idempotent initial setup (admin only).
+// Creates brotead@gmail.com admin, demotes fdiaz to editor,
+// and assigns ALL existing shared clients to BOTH users.
+// Data is never duplicated — all users read/write the same budgets rows.
 export async function POST() {
   const ctx = await getWorkspaceCtx()
   if (!ctx.isSuperAdmin) {
@@ -27,7 +29,7 @@ export async function POST() {
 
   const results: string[] = []
 
-  // 1. Check if assignments table exists
+  // 1. Verify assignments table exists
   const { error: tableErr } = await supabase
     .from('user_client_assignments')
     .select('user_id')
@@ -44,11 +46,13 @@ export async function POST() {
   // 2. Get fdiaz profile
   const { data: fdiaz } = await supabase
     .from('profiles')
-    .select('id, workspace_id, email, role')
+    .select('id, email, role')
     .eq('email', 'fdiaz@brotead.com')
     .single()
 
-  // 3. Create brotead@gmail.com admin user
+  // 3. Create / find brotead@gmail.com admin user
+  let broteadId: string | null = null
+
   const { data: newUser, error: createErr } = await adminAuth().auth.admin.createUser({
     email: 'brotead@gmail.com',
     password: 'BroteAD2025!',
@@ -58,21 +62,34 @@ export async function POST() {
 
   if (createErr) {
     if (createErr.message.includes('already been registered') || createErr.message.includes('already exists')) {
-      results.push('ℹ️ brotead@gmail.com ya existe — no se modificó')
+      results.push('ℹ️ brotead@gmail.com ya existe')
+      // Look up existing profile
+      const { data: existing } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('email', 'brotead@gmail.com')
+        .single()
+      broteadId = existing?.id ?? null
     } else {
       results.push(`❌ Error creando brotead@gmail.com: ${createErr.message}`)
     }
   } else if (newUser?.user) {
+    broteadId = newUser.user.id
     await supabase.from('profiles').upsert({
-      id: newUser.user.id,
+      id: broteadId,
       email: 'brotead@gmail.com',
       name: 'Administrador Brote',
       role: 'super_admin',
       active: true,
       role_selected: true,
-      workspace_id: fdiaz?.workspace_id ?? null,
+      workspace_id: null,
     }, { onConflict: 'id' })
-    results.push('✅ brotead@gmail.com creado como Administrador (contraseña: BroteAD2025!)')
+    results.push('✅ brotead@gmail.com creado como Administrador')
+  }
+
+  // Ensure brotead's profile role is super_admin (in case it was reset)
+  if (broteadId) {
+    await supabase.from('profiles').update({ role: 'super_admin' }).eq('id', broteadId)
   }
 
   // 4. Demote fdiaz to editor
@@ -87,27 +104,35 @@ export async function POST() {
     results.push('⚠️ No se encontró fdiaz@brotead.com')
   }
 
-  // 5. Get all current clients and assign them to fdiaz
+  // 5. Get ALL unique client names from the shared budgets table (no workspace filter —
+  //    all clients live in the same table and are shared between all users)
+  const { data: budgets } = await supabase.from('budgets').select('client_name')
+  const clients = [...new Set((budgets ?? []).map((b: { client_name: string }) => b.client_name))].sort()
+
+  if (clients.length === 0) {
+    results.push('ℹ️ No se encontraron clientes en la tabla de presupuestos')
+    return NextResponse.json({ ok: true, results })
+  }
+
+  results.push(`📋 Clientes encontrados (${clients.length}): ${clients.join(', ')}`)
+
+  // 6. Assign ALL clients to fdiaz
   if (fdiaz) {
-    let budgetQ = supabase.from('budgets').select('client_name')
-    if (fdiaz.workspace_id) budgetQ = budgetQ.eq('workspace_id', fdiaz.workspace_id)
-    const { data: budgets } = await budgetQ
-    const clients = [...new Set((budgets ?? []).map((b: { client_name: string }) => b.client_name))]
+    const { error: e } = await supabase
+      .from('user_client_assignments')
+      .upsert(clients.map(c => ({ user_id: fdiaz.id, client_name: c })), { onConflict: 'user_id,client_name' })
+    if (e) results.push(`❌ Error asignando clientes a fdiaz: ${e.message}`)
+    else results.push(`✅ ${clients.length} cliente(s) asignados a fdiaz@brotead.com`)
+  }
 
-    if (clients.length > 0) {
-      const assignments = clients.map((c) => ({ user_id: fdiaz.id, client_name: c }))
-      const { error: assignErr } = await supabase
-        .from('user_client_assignments')
-        .upsert(assignments, { onConflict: 'user_id,client_name' })
-
-      if (assignErr) {
-        results.push(`❌ Error asignando clientes: ${assignErr.message}`)
-      } else {
-        results.push(`✅ ${clients.length} cliente(s) asignados a fdiaz: ${clients.join(', ')}`)
-      }
-    } else {
-      results.push('ℹ️ No se encontraron clientes en budgets para asignar')
-    }
+  // 7. Assign ALL clients to brotead (explicit record — brotead also sees everything via
+  //    super_admin role bypass, but explicit assignment keeps the data consistent)
+  if (broteadId) {
+    const { error: e } = await supabase
+      .from('user_client_assignments')
+      .upsert(clients.map(c => ({ user_id: broteadId!, client_name: c })), { onConflict: 'user_id,client_name' })
+    if (e) results.push(`❌ Error asignando clientes a brotead: ${e.message}`)
+    else results.push(`✅ ${clients.length} cliente(s) asignados a brotead@gmail.com`)
   }
 
   return NextResponse.json({ ok: true, results })

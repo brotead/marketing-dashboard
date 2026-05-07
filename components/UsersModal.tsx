@@ -469,9 +469,12 @@ export default function UsersModal({ onClose }: Props) {
                         </button>
                       )}
 
-                      {/* Shield icon for admin row (not own) */}
+                      {/* Admin badge — full access, no assignment panel needed */}
                       {user.role === 'super_admin' && !isMe(user.id) && (
-                        <Shield size={14} className="text-violet-400 shrink-0" />
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <Shield size={12} className="text-violet-400" />
+                          <span className="text-[10px] font-semibold text-violet-400 whitespace-nowrap">Acceso total</span>
+                        </div>
                       )}
                     </div>
 
