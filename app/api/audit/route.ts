@@ -11,7 +11,15 @@ export async function GET(req: NextRequest) {
     const ctx     = await getWorkspaceCtx()
     const budgets = await getBudgets(ctx)
 
-    const fbBudgets = budgets.filter(b => b.source === 'facebook')
+    // Only include clients that exist in the CURRENT month — same source as Dashboard.
+    // This prevents stale/residual clients from appearing in the Auditor.
+    const now      = new Date()
+    const curYear  = now.getFullYear()
+    const curMonth = now.getMonth() + 1
+
+    const fbBudgets = budgets.filter(
+      b => b.source === 'facebook' && b.year === curYear && b.month === curMonth
+    )
     const allowedIds  = new Set<string>()
     const clientNames: Record<string, string> = {}
 
