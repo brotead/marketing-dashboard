@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { runAudit } from '@/lib/audit'
-import { getBudgets } from '@/lib/storage'
+import { getBudgets, getHiddenClients } from '@/lib/storage'
 import { getWorkspaceCtx } from '@/lib/workspace'
 
 export const dynamic = 'force-dynamic'
@@ -8,17 +8,19 @@ export const dynamic = 'force-dynamic'
 export async function GET(req: NextRequest) {
   const force = req.nextUrl.searchParams.get('force') === 'true'
   try {
-    const ctx     = await getWorkspaceCtx()
-    const budgets = await getBudgets(ctx)
+    const ctx = await getWorkspaceCtx()
+    const [budgets, hidden] = await Promise.all([getBudgets(ctx), getHiddenClients(ctx)])
+    const hiddenSet = new Set(hidden.map(h => `${h.client_name}|${h.source}`))
 
-    // Only include clients that exist in the CURRENT month — same source as Dashboard.
-    // This prevents stale/residual clients from appearing in the Auditor.
+    // Only include clients active in the CURRENT month and not hidden.
     const now      = new Date()
     const curYear  = now.getFullYear()
     const curMonth = now.getMonth() + 1
 
     const fbBudgets = budgets.filter(
-      b => b.source === 'facebook' && b.year === curYear && b.month === curMonth
+      b => b.source === 'facebook'
+        && b.year === curYear && b.month === curMonth
+        && !hiddenSet.has(`${b.client_name}|${b.source}`)
     )
     const allowedIds  = new Set<string>()
     const clientNames: Record<string, string> = {}

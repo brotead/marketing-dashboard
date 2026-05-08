@@ -806,14 +806,15 @@ export default function CashflowPage() {
   }, [year, month])
 
   const deleteClient = useCallback(async (clientName: string, source: Source) => {
-    const res = await fetch('/api/clients', {
-      method: 'DELETE',
+    // Mark as hidden (never physically deleted — survives Windsor sync and carryover)
+    const res = await fetch('/api/hidden-clients', {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ client_name: clientName, source }),
     })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
-      setError(`No se pudo eliminar "${clientName}": ${body.error ?? res.statusText}`)
+      setError(`No se pudo ocultar "${clientName}": ${body.error ?? res.statusText}`)
       setDeleteConfirm(null)
       return
     }
@@ -822,7 +823,6 @@ export default function CashflowPage() {
     setBudgets(prev => prev.filter(b => !(b.client_name === clientName && b.source === source)))
     if (selected?.client === clientName && selected?.source === source) setSelected(null)
     setDeleteConfirm(null)
-    // Bust server-side audit cache so Auditor reflects deletion immediately
     fetch('/api/audit?force=true').catch(() => {})
   }, [selected])
 

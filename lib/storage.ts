@@ -152,6 +152,40 @@ export async function deleteChangelogEntry(id: string): Promise<void> {
   if (error) throw new Error(error.message)
 }
 
+// ── Hidden clients ──────────────────────────────────────────────────────────────
+
+export interface HiddenClient {
+  client_name: string
+  source: string
+}
+
+export async function getHiddenClients(_ctx: WorkspaceCtx): Promise<HiddenClient[]> {
+  const { data, error } = await supabase
+    .from('hidden_clients')
+    .select('client_name, source')
+  if (error?.code === '42P01') return []  // table not created yet — safe fallback
+  if (error) return []
+  return data ?? []
+}
+
+export async function hideClient(clientName: string, source: string, ctx: WorkspaceCtx): Promise<void> {
+  const payload: Record<string, string> = { client_name: clientName, source }
+  if (ctx.workspaceId) payload.workspace_id = ctx.workspaceId
+  const { error } = await supabase
+    .from('hidden_clients')
+    .upsert(payload, { onConflict: 'client_name,source' })
+  if (error) throw new Error(error.message)
+}
+
+export async function unhideClient(clientName: string, source: string): Promise<void> {
+  const { error } = await supabase
+    .from('hidden_clients')
+    .delete()
+    .eq('client_name', clientName)
+    .eq('source', source)
+  if (error) throw new Error(error.message)
+}
+
 // ── Client assignments ──────────────────────────────────────────────────────────
 
 export async function getClientAssignments(userId: string): Promise<string[]> {

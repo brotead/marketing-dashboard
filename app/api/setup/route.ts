@@ -15,6 +15,15 @@ const SETUP_SQL = `CREATE TABLE IF NOT EXISTS user_client_assignments (
   client_name TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id, client_name)
+);
+
+CREATE TABLE IF NOT EXISTS hidden_clients (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  workspace_id TEXT,
+  client_name TEXT NOT NULL,
+  source TEXT NOT NULL,
+  hidden_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(client_name, source)
 );`
 
 // POST /api/setup — idempotent initial setup (admin only).

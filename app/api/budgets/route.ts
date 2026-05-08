@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getBudgets, upsertBudget, removeBudget } from '@/lib/storage'
+import { getBudgets, getHiddenClients, upsertBudget, removeBudget } from '@/lib/storage'
 import { getWorkspaceCtx } from '@/lib/workspace'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
   const ctx = await getWorkspaceCtx()
-  const data = await getBudgets(ctx)
-  return NextResponse.json(data, {
+  const [data, hidden] = await Promise.all([getBudgets(ctx), getHiddenClients(ctx)])
+  const hiddenSet = new Set(hidden.map(h => `${h.client_name}|${h.source}`))
+  const visible = data.filter(b => !hiddenSet.has(`${b.client_name}|${b.source}`))
+  return NextResponse.json(visible, {
     headers: { 'Cache-Control': 'no-store' },
   })
 }
