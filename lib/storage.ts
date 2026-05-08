@@ -54,8 +54,12 @@ export async function removeClientAllData(clientName: string, source: string, ct
   let budgetQ = supabase.from('budgets').delete().eq('client_name', clientName).eq('source', source)
   let goalQ   = supabase.from('goals').delete().eq('client_name', clientName)
   if (ctx.workspaceId) {
-    budgetQ = budgetQ.eq('workspace_id', ctx.workspaceId)
-    goalQ   = goalQ.eq('workspace_id', ctx.workspaceId)
+    // Delete both workspace-scoped rows AND legacy rows with workspace_id = NULL
+    // (rows created before workspace support was added have workspace_id = null and
+    // would survive a plain .eq('workspace_id', id) filter, causing the client to
+    // reappear via carryover on the next page load).
+    budgetQ = budgetQ.or(`workspace_id.eq.${ctx.workspaceId},workspace_id.is.null`)
+    goalQ   = goalQ.or(`workspace_id.eq.${ctx.workspaceId},workspace_id.is.null`)
   }
   const [br, gr] = await Promise.all([budgetQ, goalQ])
   if (br.error) throw new Error(br.error.message)
