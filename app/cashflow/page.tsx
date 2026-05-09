@@ -697,8 +697,8 @@ export default function CashflowPage() {
       monthBudgets.filter((b) => b.source === source).map((b) => b.client_name)
     ))
     return all.sort((a, b) => {
-      const aCampaigns = monthBudgets.filter(e => e.client_name === a && e.source === source)
-      const bCampaigns = monthBudgets.filter(e => e.client_name === b && e.source === source)
+      const aCampaigns = monthBudgets.filter(e => e.client_name === a && e.source === source && e.campaign_name !== '__auto__')
+      const bCampaigns = monthBudgets.filter(e => e.client_name === b && e.source === source && e.campaign_name !== '__auto__')
       const aAllPaused = aCampaigns.length > 0 && aCampaigns.every(e => e.paused)
       const bAllPaused = bCampaigns.length > 0 && bCampaigns.every(e => e.paused)
       if (aAllPaused && !bAllPaused) return 1
@@ -714,7 +714,7 @@ export default function CashflowPage() {
 
   function clientDotColor(clientName: string, source: Source): string {
     if (isPendingClient(clientName, source)) return 'bg-orange-400'
-    const cb = monthBudgets.filter((b) => b.client_name === clientName && b.source === source && !b.paused)
+    const cb = monthBudgets.filter((b) => b.client_name === clientName && b.source === source && !b.paused && b.campaign_name !== '__auto__')
     if (cb.length === 0) return 'bg-gray-600'
     const totalBudget = cb.reduce((s, b) => s + b.budget_total, 0)
     const totalSpend = cb.reduce((s, b) => s + campaignSpend(b, monthBudgets, accounts, windsorCampaigns, windsorAdsets), 0)
@@ -894,7 +894,7 @@ export default function CashflowPage() {
       <div className="space-y-0.5">
         {clients.map((client) => {
           const isSelected = selected?.client === client && selected?.source === source
-          const campaigns  = monthBudgets.filter(e => e.client_name === client && e.source === source)
+          const campaigns  = monthBudgets.filter(e => e.client_name === client && e.source === source && e.campaign_name !== '__auto__')
           const pending    = campaigns.length > 0 && campaigns.every(e => e.account_id === '__pending__')
           const allPaused  = !pending && campaigns.length > 0 && campaigns.every(e => e.paused)
           return (
