@@ -28,7 +28,7 @@ export function calcCashflow(
 
   let status: CashflowResult['status']
   if (Math.abs(deviation) <= 4) status = 'on_track'
-  else if (deviation > 5) status = 'overspending'
+  else if (deviation > 4) status = 'overspending'
   else status = 'underspending'
 
   return {

@@ -8,6 +8,7 @@ import dynamic from 'next/dynamic'
 const CampaignFormModal = dynamic(() => import('@/components/CampaignFormModal'), { ssr: false })
 import type { AccountData, BudgetEntry, CampaignSpend } from '@/lib/types'
 import { calcCashflow } from '@/lib/calculations'
+import { getDeviationStatus, deviationDotClass } from '@/lib/deviationColor'
 import { appCache, TTL } from '@/lib/appCache'
 
 const MONTHS = [
@@ -718,9 +719,8 @@ export default function CashflowPage() {
     const totalBudget = cb.reduce((s, b) => s + b.budget_total, 0)
     const totalSpend = cb.reduce((s, b) => s + campaignSpend(b, monthBudgets, accounts, windsorCampaigns, windsorAdsets), 0)
     const pct = totalBudget > 0 ? (totalSpend / totalBudget) * 100 : 0
-    if (Math.abs(pct - pctExpected) <= 5) return 'bg-green-500'
-    if (pct > pctExpected + 5) return 'bg-red-500'
-    return 'bg-amber-400'
+    const deviation = pct - pctExpected
+    return deviationDotClass(deviation)
   }
 
   const {

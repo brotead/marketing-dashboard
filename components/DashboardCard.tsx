@@ -2,7 +2,7 @@
 
 import { memo } from 'react'
 import type { AccountData, BudgetEntry } from '@/lib/types'
-import { getDeviationColor } from '@/lib/deviationColor'
+import { getDeviationClasses } from '@/lib/deviationColor'
 
 interface Props {
   clientName: string
@@ -54,7 +54,7 @@ const DashboardCard = memo(function DashboardCard({
     healthDot = 'bg-red-400'; healthLabel = 'Sin gasto'; borderColor = 'border-red-500/20'
   }
 
-  const dc = getDeviationColor(deviation)
+  const dc = getDeviationClasses(deviation)
   const barColor = deviation == null ? 'bg-gray-300 dark:bg-gray-600' : dc.bar
   const pacingColor = dc.text
   const pacingLabel = dc.label

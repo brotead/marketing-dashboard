@@ -3,7 +3,7 @@
 import { memo, useState } from 'react'
 import { Settings, Trash2, PauseCircle, PlayCircle, Pencil, X } from 'lucide-react'
 import type { BudgetEntry, CashflowResult } from '@/lib/types'
-import { getDeviationColor } from '@/lib/deviationColor'
+import { getDeviationClasses } from '@/lib/deviationColor'
 
 interface Props {
   budget: BudgetEntry
@@ -25,7 +25,7 @@ const CampaignRow = memo(function CampaignRow({ budget, cashflow, isNew, onEdit,
   const [editingSpend, setEditingSpend] = useState(false)
   const [spendInput, setSpendInput] = useState('')
 
-  const dc = getDeviationColor(cashflow.deviation)
+  const dc = getDeviationClasses(cashflow.deviation)
   const isManualSpend = budget.spend_override != null
   const barW = Math.min(cashflow.pctConsumed, 100)
   const expW = Math.min(cashflow.pctExpected, 100)
