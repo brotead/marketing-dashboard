@@ -24,6 +24,16 @@ CREATE TABLE IF NOT EXISTS hidden_clients (
   source TEXT NOT NULL,
   hidden_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(client_name, source)
+);
+
+CREATE TABLE IF NOT EXISTS excluded_campaigns (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  workspace_id TEXT,
+  account_id TEXT NOT NULL,
+  source TEXT NOT NULL,
+  campaign_name TEXT NOT NULL,
+  campaign_name_norm TEXT NOT NULL,
+  excluded_at TIMESTAMPTZ DEFAULT NOW()
 );`
 
 // POST /api/setup — idempotent initial setup (admin only).

@@ -196,6 +196,7 @@ async function autoSyncCampaigns(
   allBudgets: BudgetEntry[],
   year: number,
   month: number,
+  excludedSet: Set<string>,
   onDone: (added: BudgetEntry[], updated: BudgetEntry[], deleted: string[]) => void,
 ) {
   const monthBudgets = allBudgets.filter(b => b.year === year && b.month === month)
@@ -259,9 +260,10 @@ async function autoSyncCampaigns(
   const deleteSet = new Set<string>()
   for (const entries of wcToEntries.values()) {
     if (entries.length <= 1) continue
-    const realEntries = entries.filter(b => !b.campaign_id.startsWith('auto_') || b.budget_total > 0)
-    const autoZero    = entries.filter(b =>  b.campaign_id.startsWith('auto_') && b.budget_total === 0)
-    if (realEntries.length > 0) autoZero.forEach(b => deleteSet.add(b.campaign_id))
+    // Keep entries with real budget or manual override; auto-remove trivial zero duplicates
+    const withBudget  = entries.filter(b => b.budget_total > 0 || b.spend_override != null)
+    const trivialZero = entries.filter(b => b.budget_total === 0 && b.spend_override == null)
+    if (withBudget.length > 0) trivialZero.forEach(b => deleteSet.add(b.campaign_id))
   }
 
   const toUpdate: BudgetEntry[] = []
@@ -281,7 +283,8 @@ async function autoSyncCampaigns(
   for (const wc of windsorCampaigns) {
     if (!wc.account_id || wc.spend <= 0) continue
     const wcKey = `${wc.account_id}|${wc.source}|${normName(wc.campaign_name)}`
-    if (matchedKeys.has(wcKey) || addSeen.has(wcKey)) continue
+    // Skip campaigns the user explicitly excluded — prevents Windsor from re-adding them
+    if (matchedKeys.has(wcKey) || addSeen.has(wcKey) || excludedSet.has(wcKey)) continue
     const acctKey = `${wc.account_id}|${wc.source}`
     if (!accountToClient.has(acctKey)) continue
     addSeen.add(wcKey)
@@ -455,7 +458,7 @@ export default function CashflowPage() {
     if (!hasCached) setLoading(true)
     setError(null)
     try {
-      let [windsorJson, bs] = await Promise.all([
+      let [windsorJson, bs, excludedRaw] = await Promise.all([
         appCache.fetch<{ data: AccountData[]; campaigns: CampaignSpend[]; adsets: CampaignSpend[] }>(
           `windsor-${year}-${month}`, async () => {
             const r = await fetch(`/api/windsor?year=${year}&month=${month}${force ? '&force=true' : ''}`)
@@ -464,6 +467,9 @@ export default function CashflowPage() {
           }, TTL.HOUR),
         appCache.fetch<BudgetEntry[]>('budgets', () =>
           fetch('/api/budgets').then(r => r.json()), TTL.MIN1),
+        appCache.fetch<{ account_id: string; source: string; campaign_name_norm: string }[]>(
+          'excluded-campaigns', () =>
+            fetch('/api/excluded-campaigns').then(r => r.json()), TTL.MIN15),
       ])
       const accs: AccountData[] = windsorJson.data ?? []
       const wCampaigns: CampaignSpend[] = windsorJson.campaigns ?? []
@@ -496,10 +502,46 @@ export default function CashflowPage() {
         setCarryoverInfo(null)
       }
 
+      // Build excluded set (persistent list of campaigns the user hid)
+      const excl = new Set(
+        (excludedRaw ?? []).map(e => `${e.account_id}|${e.source}|${e.campaign_name_norm}`)
+      )
+
+      // Auto-exclude zero-budget/zero-spend campaigns after day 5 of the month
+      const today = new Date()
+      if (today.getDate() > 5) {
+        const monthBs = bs.filter(b => b.year === year && b.month === month)
+        const toAutoExclude: BudgetEntry[] = []
+        for (const b of monthBs) {
+          const key = `${b.account_id}|${b.source}|${normName(b.campaign_name)}`
+          if (excl.has(key) || b.budget_total > 0 || b.spend_override != null || b.paused) continue
+          excl.add(key)
+          toAutoExclude.push(b)
+        }
+        if (toAutoExclude.length > 0) {
+          toAutoExclude.forEach(b => {
+            fetch('/api/excluded-campaigns', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                account_id: b.account_id, source: b.source,
+                campaign_name: b.campaign_name, campaign_name_norm: normName(b.campaign_name),
+              }),
+            }).catch(() => {})
+          })
+          appCache.invalidateHard('excluded-campaigns')
+        }
+      }
+
+      // Filter visible budgets — excluded campaigns stay in Supabase but never render
+      const visibleBs = bs.filter(
+        b => !excl.has(`${b.account_id}|${b.source}|${normName(b.campaign_name)}`)
+      )
+
       setAccounts(accs)
       setWindsorCampaigns(wCampaigns)
       setWindsorAdsets(wAdsets)
-      setBudgets(bs)
+      setBudgets(visibleBs)
 
       if (!selected) {
         const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '')
@@ -508,13 +550,13 @@ export default function CashflowPage() {
         if (preClient && preSrc) {
           setSelected({ client: preClient, source: preSrc })
         } else {
-          const mb = bs.filter((b) => b.year === year && b.month === month)
+          const mb = visibleBs.filter((b) => b.year === year && b.month === month)
           const firstMeta = Array.from(new Set(mb.filter(b => b.source === 'facebook').map(b => b.client_name))).sort()[0]
           if (firstMeta) setSelected({ client: firstMeta, source: 'facebook' })
         }
       }
 
-      await autoSyncCampaigns(wCampaigns, wAdsets, bs, year, month, (added, updated, deleted) => {
+      await autoSyncCampaigns(wCampaigns, wAdsets, bs, year, month, excl, (added, updated, deleted) => {
         setBudgets(prev => {
           let next = [...prev, ...added]
           for (const u of updated) {
@@ -798,7 +840,8 @@ export default function CashflowPage() {
         campaign_name_norm: normName(entry.campaign_name),
       }),
     })
-    appCache.invalidate('budgets')
+    appCache.invalidateHard('budgets')
+    appCache.invalidateHard('excluded-campaigns')
     setBudgets((prev) =>
       prev.filter((b) => !(b.campaign_id === entry.campaign_id && b.year === year && b.month === month))
     )
