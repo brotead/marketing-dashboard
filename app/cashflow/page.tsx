@@ -296,7 +296,7 @@ async function autoSyncCampaigns(
     const [acctId, acctSource] = acctKey.split('|')
     const unmatchedExistingCount = monthBudgets.filter(b =>
       b.account_id === acctId && b.source === acctSource &&
-      !b.paused && !deleteSet.has(b.campaign_id) && !entryToWc.has(b.campaign_id)
+      !deleteSet.has(b.campaign_id) && !entryToWc.has(b.campaign_id)
     ).length
 
     const sorted = [...unmatchedWc].sort((a, b) => (b.today_spend ?? 0) - (a.today_spend ?? 0))
