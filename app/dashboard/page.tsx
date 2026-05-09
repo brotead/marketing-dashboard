@@ -4,10 +4,12 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { RefreshCw, AlertCircle, Plus } from 'lucide-react'
 import DashboardCard from '@/components/DashboardCard'
+import DashboardSidebar from '@/components/DashboardSidebar'
 import NewClientModal from '@/components/NewClientModal'
 import type { AccountData, BudgetEntry } from '@/lib/types'
 import { checklistProgress, trackingProgress } from '@/lib/onboarding'
 import type { OnboardingClient } from '@/lib/onboarding'
+import type { AuditData, ClientAudit } from '@/lib/audit'
 import { useAuth } from '@/contexts/AuthContext'
 import { appCache, TTL } from '@/lib/appCache'
 
@@ -52,6 +54,8 @@ export default function DashboardPage() {
     return Array.isArray(cached) ? countIncomplete(cached) : 0
   })
   const [showNewClient,    setShowNewClient]    = useState(false)
+  const [auditClients,     setAuditClients]     = useState<ClientAudit[] | null>(null)
+  const [auditLoading,     setAuditLoading]     = useState(true)
   type SortOrder = 'priority' | 'spend_high' | 'spend_low'
   const [sortOrder, setSortOrder] = useState<SortOrder>('priority')
 
@@ -93,6 +97,16 @@ export default function DashboardPage() {
   }, [year, month])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  // Fetch audit data independently — non-blocking, cached 5 min
+  useEffect(() => {
+    setAuditLoading(true)
+    appCache.fetch<AuditData>('audit', () =>
+      fetch('/api/audit').then(r => r.json()), TTL.MIN5)
+      .then(data => { if (data?.results) setAuditClients(data.results) })
+      .catch(() => {})
+      .finally(() => setAuditLoading(false))
+  }, [])
 
   // Auto-refresh every 2 minutes so assignment changes from admin appear automatically
   useEffect(() => {
@@ -292,80 +306,99 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Skeleton */}
-      {loading && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-          {[1,2,3,4,5,6,7,8].map((i) => (
-            <div key={i} className="h-56 bg-gray-100 dark:bg-[#1a1a1a] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] animate-pulse" />
-          ))}
+      {/* Main body: 3-col cards + sticky sidebar */}
+      <div className="flex gap-6 items-start">
+
+        {/* Cards column */}
+        <div className="flex-1 min-w-0">
+
+          {/* Skeleton */}
+          {loading && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {[1,2,3,4,5,6].map((i) => (
+                <div key={i} className="h-56 bg-gray-100 dark:bg-[#1a1a1a] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] animate-pulse" />
+              ))}
+            </div>
+          )}
+
+          {/* Sort bar */}
+          {!loading && sortedActiveClients.length > 0 && (() => {
+            const opts: { key: typeof sortOrder; label: string }[] = [
+              { key: 'priority',   label: 'Prioridad'   },
+              { key: 'spend_high', label: 'Mayor gasto' },
+              { key: 'spend_low',  label: 'Menor gasto' },
+            ]
+            return (
+              <div className="flex items-center gap-2 mb-5 flex-wrap">
+                <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-600 uppercase tracking-widest mr-1">Ordenar:</span>
+                {opts.map(o => (
+                  <button
+                    key={o.key}
+                    onClick={() => setSortOrder(o.key)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 ${
+                      sortOrder === o.key
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'bg-white dark:bg-white/[0.03] text-gray-500 border border-gray-200 dark:border-white/[0.06] hover:border-gray-300 dark:hover:border-white/[0.12] hover:text-gray-700 dark:hover:text-gray-300 shadow-sm dark:shadow-none'
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            )
+          })()}
+
+          {/* Active client cards */}
+          {!loading && sortedActiveClients.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {sortedActiveClients.map(renderCard)}
+            </div>
+          )}
+
+          {/* Paused clients separator + cards */}
+          {!loading && pausedClients.length > 0 && (
+            <>
+              <div className="flex items-center gap-3 mt-8 mb-4">
+                <div className="flex-1 border-t border-gray-200 dark:border-[#2a2a2a]" />
+                <span className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-1">
+                  Clientes pausados
+                </span>
+                <div className="flex-1 border-t border-gray-200 dark:border-[#2a2a2a]" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 opacity-60">
+                {pausedClients.map(renderCard)}
+              </div>
+            </>
+          )}
+
+          {/* Empty workspace state */}
+          {!loading && budgets.length === 0 && (
+            <div className="flex items-center justify-center py-24">
+              <p className="text-gray-400 dark:text-gray-500 text-sm">
+                No hay clientes cargados. Usá el botón <span className="text-gray-600 dark:text-gray-300 font-semibold">Nuevo cliente</span> para empezar.
+              </p>
+            </div>
+          )}
+
+          {/* No clients for selected period */}
+          {!loading && budgets.length > 0 && allClients.length === 0 && (
+            <div className="flex items-center justify-center h-48 text-gray-500 text-sm">
+              No hay clientes configurados para este período
+            </div>
+          )}
         </div>
-      )}
 
-      {/* Sort bar */}
-      {!loading && sortedActiveClients.length > 0 && (() => {
-        const opts: { key: typeof sortOrder; label: string }[] = [
-          { key: 'priority',   label: 'Prioridad'   },
-          { key: 'spend_high', label: 'Mayor gasto' },
-          { key: 'spend_low',  label: 'Menor gasto' },
-        ]
-        return (
-          <div className="flex items-center gap-2 mb-5 flex-wrap">
-            <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-600 uppercase tracking-widest mr-1">Ordenar:</span>
-            {opts.map(o => (
-              <button
-                key={o.key}
-                onClick={() => setSortOrder(o.key)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 ${
-                  sortOrder === o.key
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'bg-white dark:bg-white/[0.03] text-gray-500 border border-gray-200 dark:border-white/[0.06] hover:border-gray-300 dark:hover:border-white/[0.12] hover:text-gray-700 dark:hover:text-gray-300 shadow-sm dark:shadow-none'
-                }`}
-              >
-                {o.label}
-              </button>
-            ))}
-          </div>
-        )
-      })()}
-
-      {/* Active client cards */}
-      {!loading && sortedActiveClients.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-          {sortedActiveClients.map(renderCard)}
+        {/* Sticky sidebar — hidden on small screens */}
+        <div className="hidden xl:block w-[272px] shrink-0 sticky top-6 self-start">
+          <DashboardSidebar
+            auditClients={auditClients}
+            activeClients={activeClients}
+            loading={auditLoading}
+            month={month}
+            year={year}
+          />
         </div>
-      )}
-
-      {/* Paused clients separator + cards */}
-      {!loading && pausedClients.length > 0 && (
-        <>
-          <div className="flex items-center gap-3 mt-8 mb-4">
-            <div className="flex-1 border-t border-gray-200 dark:border-[#2a2a2a]" />
-            <span className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-1">
-              Clientes pausados
-            </span>
-            <div className="flex-1 border-t border-gray-200 dark:border-[#2a2a2a]" />
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 opacity-60">
-            {pausedClients.map(renderCard)}
-          </div>
-        </>
-      )}
-
-      {/* Empty workspace state — user has never added any client */}
-      {!loading && budgets.length === 0 && (
-        <div className="flex items-center justify-center py-24">
-          <p className="text-gray-400 dark:text-gray-500 text-sm">
-            No hay clientes cargados. Usá el botón <span className="text-gray-600 dark:text-gray-300 font-semibold">Nuevo cliente</span> para empezar.
-          </p>
-        </div>
-      )}
-
-      {/* No clients for selected period, but workspace has data */}
-      {!loading && budgets.length > 0 && allClients.length === 0 && (
-        <div className="flex items-center justify-center h-48 text-gray-500 text-sm">
-          No hay clientes configurados para este período
-        </div>
-      )}
+      </div>
 
       {showNewClient && (
         <NewClientModal
