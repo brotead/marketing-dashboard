@@ -84,7 +84,7 @@ function Delta({ value, status, invert }: { value: number | null; status: Status
 
 // ── Campaign section ──────────────────────────────────────────────────────────
 
-function CampaignSection({ accountId }: { accountId: string }) {
+function CampaignSection({ accountId, convFilter }: { accountId: string; convFilter: 'messages' | 'purchases' }) {
   const [data, setData]       = useState<CampaignData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState<string | null>(null)
@@ -101,20 +101,14 @@ function CampaignSection({ accountId }: { accountId: string }) {
   if (error) return <p className="text-sm text-rose-400">{error}</p>
   if (!data || !data.campaigns.length) return <p className="text-sm text-gray-500">Sin campañas activas.</p>
 
-  const isMessaging = data.client_type === 'messaging'
-
   return (
     <table className="w-full text-left text-sm border-separate border-spacing-0">
       <thead>
         <tr>
           <th className="pb-2 pr-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider border-b border-[#2a2a2a]">Campaña</th>
           <th className="pb-2 px-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider border-b border-[#2a2a2a] text-right whitespace-nowrap">Gasto 7d</th>
-          {isMessaging && (
-            <th className="pb-2 px-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider border-b border-[#2a2a2a] text-center whitespace-nowrap">Mensajes</th>
-          )}
-          {isMessaging && (
-            <th className="pb-2 px-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider border-b border-[#2a2a2a] text-center whitespace-nowrap">CPL</th>
-          )}
+          <th className="pb-2 px-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider border-b border-[#2a2a2a] text-center whitespace-nowrap">{convFilter === 'messages' ? 'Mensajes' : 'Compras'}</th>
+          <th className="pb-2 px-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider border-b border-[#2a2a2a] text-center whitespace-nowrap">{convFilter === 'messages' ? 'CPA Msg' : 'CPA Compras'}</th>
           <th className="pb-2 px-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider border-b border-[#2a2a2a] text-center">CTR</th>
           <th className="pb-2 pl-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider border-b border-[#2a2a2a] text-right">Estado</th>
         </tr>
@@ -138,16 +132,19 @@ function CampaignSection({ accountId }: { accountId: string }) {
                   </p>
                 )}
               </td>
-              {isMessaging && (
-                <td className="py-2.5 px-3 text-center">
-                  <Delta value={c.conversions_change} status={c.conversions_status} />
-                </td>
-              )}
-              {isMessaging && (
-                <td className="py-2.5 px-3 text-center">
-                  <Delta value={c.cpl_change} status={c.cpl_status} invert />
-                </td>
-              )}
+              <td className="py-2.5 px-3 text-center">
+                <Delta
+                  value={convFilter === 'messages' ? c.conversions_change : c.purchases_change}
+                  status={convFilter === 'messages' ? c.conversions_status : c.purchases_status}
+                />
+              </td>
+              <td className="py-2.5 px-3 text-center">
+                <Delta
+                  value={convFilter === 'messages' ? c.cpl_change : c.cpa_purchases_change}
+                  status={convFilter === 'messages' ? c.cpl_status : c.cpa_purchases_status}
+                  invert
+                />
+              </td>
               <td className="py-2.5 px-3 text-center">
                 <Delta value={c.ctr_change} status={c.ctr_status} />
               </td>
@@ -166,7 +163,7 @@ function CampaignSection({ accountId }: { accountId: string }) {
 
 // ── Client drawer ─────────────────────────────────────────────────────────────
 
-function ClientDrawer({ client, onClose }: { client: ClientAudit; onClose: () => void }) {
+function ClientDrawer({ client, convFilter, onClose }: { client: ClientAudit; convFilter: 'messages' | 'purchases'; onClose: () => void }) {
   const cfg = HEALTH[client.health]
 
   useEffect(() => {
@@ -180,13 +177,23 @@ function ClientDrawer({ client, onClose }: { client: ClientAudit; onClose: () =>
     return () => { document.body.style.overflow = '' }
   }, [])
 
-  const convLabel = client.client_type === 'messaging' ? 'Conversaciones' : 'Visitas IG'
-  const cplLabel  = client.client_type === 'messaging' ? 'Costo / msg' : 'Costo / visita'
+  const convLabel = convFilter === 'messages'
+    ? (client.client_type === 'messaging' ? 'Mensajes' : 'Conversaciones')
+    : 'Compras'
+  const cpaLabel = convFilter === 'messages' ? 'CPA Msg' : 'CPA Compras'
+  const convValue = convFilter === 'messages'
+    ? (client.conversions > 0 ? client.conversions.toLocaleString('es-AR') : '—')
+    : (client.purchases > 0 ? client.purchases.toLocaleString('es-AR') : '—')
+  const cpaValue = convFilter === 'messages'
+    ? (client.cpl > 0 ? ars(client.cpl) : '—')
+    : (client.cpa_purchases > 0 ? ars(client.cpa_purchases) : '—')
+  const convDelta = convFilter === 'messages' ? client.conversions_change : client.purchases_change
+  const cpaDelta  = convFilter === 'messages' ? client.cpl_change : client.cpa_purchases_change
 
   const stats = [
     { label: 'Inversión 7d', value: ars(client.spend), delta: client.spend_change, invert: false },
-    { label: convLabel, value: client.conversions > 0 ? client.conversions.toLocaleString('es-AR') : '—', delta: client.conversions_change, invert: false },
-    { label: cplLabel, value: client.cpl > 0 ? ars(client.cpl) : '—', delta: client.cpl_change, invert: true },
+    { label: convLabel, value: convValue, delta: convDelta, invert: false },
+    { label: cpaLabel, value: cpaValue, delta: cpaDelta, invert: true },
     { label: 'CTR', value: `${client.ctr.toFixed(2)}%`, delta: client.ctr_change, invert: false },
   ]
 
@@ -274,7 +281,7 @@ function ClientDrawer({ client, onClose }: { client: ClientAudit; onClose: () =>
                 <p className="text-[10px] font-bold text-gray-600 uppercase tracking-widest">Campañas activas</p>
               </div>
               <div className="bg-[#141414] rounded-xl border border-[#1e1e1e] px-6 py-5">
-                <CampaignSection accountId={client.account_id} />
+                <CampaignSection accountId={client.account_id} convFilter={convFilter} />
               </div>
             </div>
 
@@ -339,6 +346,7 @@ export default function AuditPage() {
   const [search,        setSearch]        = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [selected,      setSelected]      = useState<ClientAudit | null>(null)
+  const [convFilter, setConvFilter] = useState<'messages' | 'purchases'>('messages')
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const handleSearch = useCallback((v: string) => {
@@ -375,6 +383,10 @@ export default function AuditPage() {
   }, [results, debouncedSearch])
 
   const momMaxCpl = useMemo(() => results.length > 0 ? Math.max(...results.map(r => Math.max(r.cpl, r.mom_cpl, 1))) : 1, [results])
+  const momMaxCpa = useMemo(
+    () => results.length > 0 ? Math.max(...results.map(r => Math.max(r.cpa_purchases, r.mom_cpa_purchases, 1))) : 1,
+    [results]
+  )
   const momMaxCtr = useMemo(() => results.length > 0 ? Math.max(...results.map(r => Math.max(r.ctr, r.mom_ctr, 0.01))) : 1, [results])
   const momByCpl = useMemo(
     () => [...results].sort((a, b) => (b.mom_cpl_change ?? -Infinity) - (a.mom_cpl_change ?? -Infinity)),
@@ -412,6 +424,26 @@ export default function AuditPage() {
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
             Actualizar análisis
           </button>
+        </div>
+
+        {/* Conv/CPA filter toggle */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Métrica:</span>
+          <div className="flex rounded-xl overflow-hidden border border-gray-200 dark:border-[#333] bg-gray-50 dark:bg-[#1a1a1a]">
+            {(['messages', 'purchases'] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setConvFilter(f)}
+                className={`px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+                  convFilter === f
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#252525]'
+                }`}
+              >
+                {f === 'messages' ? 'Mensajes' : 'Compras'}
+              </button>
+            ))}
+          </div>
         </div>
 
         {error && (
@@ -455,7 +487,7 @@ export default function AuditPage() {
             {/* Header */}
             <div className="hidden sm:grid items-center gap-3 px-6 py-3 border-b border-gray-100 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#252525]/60"
                  style={{ gridTemplateColumns: '1.5rem 1fr 6.5rem 5rem 5rem 5rem 7.5rem 1rem' }}>
-              {['', 'Cliente', 'Estado', 'Conv.', 'CPL', 'CTR', 'Gasto 7d', ''].map((h, i) => (
+              {['', 'Cliente', 'Estado', convFilter === 'messages' ? 'Mensajes' : 'Compras', convFilter === 'messages' ? 'CPA Msg' : 'CPA Compras', 'CTR', 'Gasto 7d', ''].map((h, i) => (
                 <span key={i} className={`text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider ${i === 0 || i === 7 ? '' : i === 1 ? '' : i === 6 ? 'text-right' : 'text-center'}`}>{h}</span>
               ))}
             </div>
@@ -488,11 +520,18 @@ export default function AuditPage() {
                     </div>
 
                     <div className="flex justify-center">
-                      <Delta value={c.conversions_change} status={c.conversions_status} />
+                      <Delta
+                        value={convFilter === 'messages' ? c.conversions_change : c.purchases_change}
+                        status={convFilter === 'messages' ? c.conversions_status : c.purchases_status}
+                      />
                     </div>
 
                     <div className="flex justify-center">
-                      <Delta value={c.cpl_change} status={c.cpl_status} invert />
+                      <Delta
+                        value={convFilter === 'messages' ? c.cpl_change : c.cpa_purchases_change}
+                        status={convFilter === 'messages' ? c.cpl_status : c.cpa_purchases_status}
+                        invert
+                      />
                     </div>
 
                     <div className="flex justify-center">
@@ -530,8 +569,8 @@ export default function AuditPage() {
         {!loading && (
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-gray-400 dark:text-gray-500 pt-2 border-t border-gray-200 dark:border-[#2a2a2a]">
             <span className="font-semibold text-gray-500 dark:text-gray-400">7d vs 7d ant. —</span>
-            <span>Conv./CTR/Gasto: ↑ verde ↓ rojo</span>
-            <span>CPL: ↓ verde ↑ rojo</span>
+            <span>{convFilter === 'messages' ? 'Mensajes' : 'Compras'}/CTR/Gasto: ↑ verde ↓ rojo</span>
+            <span>{convFilter === 'messages' ? 'CPA Msg' : 'CPA Compras'}: ↓ verde ↑ rojo</span>
           </div>
         )}
 
@@ -560,12 +599,13 @@ export default function AuditPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
               <div>
-                <p className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-2 pb-1.5 border-b border-gray-200 dark:border-[#2a2a2a]">Costo por conv. iniciada (CPL)</p>
-                {momByCpl.map(c => (
-                  <MomBar key={c.account_id}
-                    label={c.client_name} current={c.cpl} prev={c.mom_cpl}
-                    max={momMaxCpl} changeVal={c.mom_cpl_change} format={ars} invert
-                  />
+                <p className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-2 pb-1.5 border-b border-gray-200 dark:border-[#2a2a2a]">{convFilter === 'messages' ? 'Costo por conv. iniciada (CPA Msg)' : 'Costo por compra (CPA Compras)'}</p>
+                {convFilter === 'messages' ? momByCpl.map(c => (
+                  <MomBar key={c.account_id} label={c.client_name} current={c.cpl} prev={c.mom_cpl}
+                    max={momMaxCpl} changeVal={c.mom_cpl_change} format={ars} invert />
+                )) : momByCpl.map(c => (
+                  <MomBar key={c.account_id} label={c.client_name} current={c.cpa_purchases} prev={c.mom_cpa_purchases}
+                    max={momMaxCpa} changeVal={c.mom_cpa_purchases_change} format={ars} invert />
                 ))}
               </div>
               <div>
@@ -584,7 +624,7 @@ export default function AuditPage() {
 
       </div>
 
-      {selected && <ClientDrawer client={selected} onClose={() => setSelected(null)} />}
+      {selected && <ClientDrawer client={selected} convFilter={convFilter} onClose={() => setSelected(null)} />}
     </>
   )
 }

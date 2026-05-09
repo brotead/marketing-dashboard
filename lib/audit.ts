@@ -32,6 +32,8 @@ interface RawRow {
   actions_onsite_conversion_lead_grouped?:                         number | null
   actions_onsite_conversion_messaging_conversation_started_7d?:   number | null
   actions_instagram_profile_visit?:                                number | null
+  actions_purchase?:                                               number | null
+  actions_omni_purchase?:                                          number | null
 }
 
 // Windsor fields — CTR computed as link_clicks/impressions
@@ -42,6 +44,8 @@ const ACCOUNT_FIELDS = [
   'actions_onsite_conversion_lead_grouped',
   'actions_onsite_conversion_messaging_conversation_started_7d',
   'actions_instagram_profile_visit',
+  'actions_purchase',
+  'actions_omni_purchase',
 ].join(',')
 
 const CAMPAIGN_FIELDS = [
@@ -51,6 +55,8 @@ const CAMPAIGN_FIELDS = [
   'actions_onsite_conversion_lead_grouped',
   'actions_onsite_conversion_messaging_conversation_started_7d',
   'actions_instagram_profile_visit',
+  'actions_purchase',
+  'actions_omni_purchase',
 ].join(',')
 
 // ── Computed metrics ─────────────────────────────────────────────────────────
@@ -64,6 +70,7 @@ export interface Metrics {
   results:          number   // total results
   messaging:        number   // conversaciones iniciadas
   ig_visits:        number   // Instagram profile visits
+  purchases:        number   // purchases/compras count
 }
 
 // Windsor sometimes returns numeric fields as strings — always parse
@@ -80,6 +87,7 @@ function toMetrics(r: RawRow): Metrics {
   const ig_visits   = n(r.actions_instagram_profile_visit)
   // results = only lead-type conversions; messaging is tracked separately
   const results     = n(r.actions_lead) + n(r.actions_onsite_conversion_lead_grouped)
+  const purchases   = n(r.actions_purchase) + n(r.actions_omni_purchase)
   return {
     spend:       n(r.spend),
     impressions,
@@ -89,6 +97,7 @@ function toMetrics(r: RawRow): Metrics {
     results,
     messaging,
     ig_visits,
+    purchases,
   }
 }
 
@@ -265,6 +274,12 @@ export interface CampaignAudit {
   conversions:          number
   conversions_change:   number | null
   conversions_status:   Status | 'none'
+  purchases:            number
+  purchases_change:     number | null
+  purchases_status:     Status | 'none'
+  cpa_purchases:        number
+  cpa_purchases_change: number | null
+  cpa_purchases_status: Status | 'none'
   spend_change:         number | null
   score:                number
   health:               Health
@@ -297,6 +312,12 @@ export interface ClientAudit {
   conversions:            number        // messaging or ig_visits depending on client_type
   conversions_change:     number | null
   conversions_status:     Status | 'none'
+  purchases:              number
+  purchases_change:       number | null
+  purchases_status:       Status | 'none'
+  cpa_purchases:          number
+  cpa_purchases_change:   number | null
+  cpa_purchases_status:   Status | 'none'
   spend_change:           number | null
   diagnosis:              string
   action:                 string
@@ -304,10 +325,12 @@ export interface ClientAudit {
   tip:                    string
   tags:                   string[]
   // Month-over-month: same 7 days last month
-  mom_cpl:        number
-  mom_ctr:        number
-  mom_cpl_change: number | null
-  mom_ctr_change: number | null
+  mom_cpl:              number
+  mom_ctr:              number
+  mom_cpl_change:       number | null
+  mom_ctr_change:       number | null
+  mom_cpa_purchases:        number
+  mom_cpa_purchases_change: number | null
 }
 
 export interface AuditData {
@@ -368,6 +391,27 @@ function buildAuditItem(recent: Metrics, prev: Metrics | null, clientType: Clien
     conversions_change = 100 // went from 0 to something
   }
 
+  const purchases_r = recent.purchases
+  const purchases_p = prev ? prev.purchases : 0
+  const hasPurchases = purchases_r > 0
+  const cpa_purchases_r = hasPurchases ? recent.spend / purchases_r : 0
+
+  let purchases_change: number | null = null
+  if (prev && purchases_p > 0) {
+    purchases_change = ((purchases_r - purchases_p) / purchases_p) * 100
+  } else if (prev && purchases_r > 0 && purchases_p === 0) {
+    purchases_change = 100
+  }
+
+  let cpa_purchases_change: number | null = null
+  if (prev && purchases_p > 0) {
+    const cpa_p = prev.spend / purchases_p
+    if (cpa_p > 0 && hasPurchases) cpa_purchases_change = ((cpa_purchases_r - cpa_p) / cpa_p) * 100
+  }
+
+  const purchases_s: Status | 'none' = (purchases_r > 0 || purchases_p > 0) ? conversionsStatus(purchases_change) : 'none'
+  const cpa_purchases_s: Status | 'none' = hasPurchases ? cplStatus(cpa_purchases_change) : 'none'
+
   // Spend change
   if (prev && prev.spend > 0) {
     spend_change = ((recent.spend - prev.spend) / prev.spend) * 100
@@ -415,6 +459,12 @@ function buildAuditItem(recent: Metrics, prev: Metrics | null, clientType: Clien
     conversions: conversions_r,
     conversions_change,
     conversions_status: conv_s,
+    purchases: purchases_r,
+    purchases_change,
+    purchases_status: purchases_s,
+    cpa_purchases: cpa_purchases_r,
+    cpa_purchases_change,
+    cpa_purchases_status: cpa_purchases_s,
     spend_change,
     ctr_change, cpm_change, cpl_change,
     ctr_status: ctr_s, cpm_status: cpm_s, cpl_status: cpl_s,
@@ -497,6 +547,12 @@ export async function runAudit(
       ? ((item.cpl - mom_cpl) / mom_cpl) * 100
       : null
 
+    const momPurchases = mom ? mom.purchases : 0
+    const mom_cpa_purchases = momPurchases > 0 ? (mom!.spend / momPurchases) : 0
+    const mom_cpa_purchases_change: number | null = mom_cpa_purchases > 0 && item.cpa_purchases > 0
+      ? ((item.cpa_purchases - mom_cpa_purchases) / mom_cpa_purchases) * 100
+      : null
+
     total_spend   += recent.spend
     total_results += recent.results
 
@@ -506,6 +562,8 @@ export async function runAudit(
       client_type: clientType,
       mom_cpl, mom_ctr,
       mom_cpl_change, mom_ctr_change,
+      mom_cpa_purchases,
+      mom_cpa_purchases_change,
       ...item,
     })
   }
@@ -530,6 +588,12 @@ export async function runAudit(
       conversions:         0,
       conversions_change:  null,
       conversions_status:  'none',
+      purchases:           0,
+      purchases_change:    null,
+      purchases_status:    'none',
+      cpa_purchases:       0,
+      cpa_purchases_change: null,
+      cpa_purchases_status: 'none',
       spend_change:        null,
       ctr_change:          null,
       cpm_change:          null,
@@ -547,6 +611,8 @@ export async function runAudit(
       mom_ctr:             0,
       mom_cpl_change:      null,
       mom_ctr_change:      null,
+      mom_cpa_purchases:        0,
+      mom_cpa_purchases_change: null,
     })
   }
 

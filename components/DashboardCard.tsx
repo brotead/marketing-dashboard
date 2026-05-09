@@ -2,6 +2,7 @@
 
 import { memo } from 'react'
 import type { AccountData, BudgetEntry } from '@/lib/types'
+import { getDeviationColor } from '@/lib/deviationColor'
 
 interface Props {
   clientName: string
@@ -53,17 +54,10 @@ const DashboardCard = memo(function DashboardCard({
     healthDot = 'bg-red-400'; healthLabel = 'Sin gasto'; borderColor = 'border-red-500/20'
   }
 
-  let pacingColor = 'text-gray-400 dark:text-gray-500'
-  let pacingLabel = '—'
-  if (deviation != null) {
-    if (Math.abs(deviation) <= 5) { pacingColor = 'text-green-600 dark:text-green-500'; pacingLabel = 'En ritmo' }
-    else if (deviation > 5)       { pacingColor = 'text-red-600 dark:text-red-500';   pacingLabel = 'Excediendo' }
-    else                          { pacingColor = 'text-amber-600 dark:text-amber-500'; pacingLabel = 'Bajo ritmo' }
-  }
-
-  const barColor = deviation == null ? 'bg-gray-300 dark:bg-gray-600'
-    : Math.abs(deviation) <= 5 ? 'bg-green-500'
-    : deviation > 5 ? 'bg-red-500' : 'bg-amber-400'
+  const dc = getDeviationColor(deviation)
+  const barColor = deviation == null ? 'bg-gray-300 dark:bg-gray-600' : dc.bar
+  const pacingColor = dc.text
+  const pacingLabel = dc.label
 
   const hasMeta   = !!metaAccount   || metaBudget > 0
   const hasGoogle = !!googleAccount || googleBudget > 0

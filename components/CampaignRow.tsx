@@ -3,6 +3,7 @@
 import { memo, useState } from 'react'
 import { Settings, Trash2, PauseCircle, PlayCircle, Pencil, X } from 'lucide-react'
 import type { BudgetEntry, CashflowResult } from '@/lib/types'
+import { getDeviationColor } from '@/lib/deviationColor'
 
 interface Props {
   budget: BudgetEntry
@@ -20,31 +21,11 @@ function currency(n: number) {
   })
 }
 
-const STATUS_DOT: Record<CashflowResult['status'], string> = {
-  on_track:     'bg-green-500',
-  overspending: 'bg-red-500',
-  underspending:'bg-amber-400',
-}
-const STATUS_BAR: Record<CashflowResult['status'], string> = {
-  on_track:     'bg-green-500',
-  overspending: 'bg-red-500',
-  underspending:'bg-amber-400',
-}
-const STATUS_TEXT: Record<CashflowResult['status'], string> = {
-  on_track:     'text-green-600 dark:text-green-400',
-  overspending: 'text-red-600 dark:text-red-400',
-  underspending:'text-amber-600 dark:text-amber-400',
-}
-const DEVIATION_TEXT: Record<CashflowResult['status'], string> = {
-  on_track:     'text-green-600 dark:text-green-500',
-  overspending: 'text-red-600 dark:text-red-500',
-  underspending:'text-amber-600 dark:text-amber-500',
-}
-
 const CampaignRow = memo(function CampaignRow({ budget, cashflow, isNew, onEdit, onDelete, onPause, onSpendOverride }: Props) {
   const [editingSpend, setEditingSpend] = useState(false)
   const [spendInput, setSpendInput] = useState('')
 
+  const dc = getDeviationColor(cashflow.deviation)
   const isManualSpend = budget.spend_override != null
   const barW = Math.min(cashflow.pctConsumed, 100)
   const expW = Math.min(cashflow.pctExpected, 100)
@@ -78,7 +59,7 @@ const CampaignRow = memo(function CampaignRow({ budget, cashflow, isNew, onEdit,
     <div className="bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] rounded-xl px-4 py-3.5 hover:border-gray-300 dark:hover:border-[#333] hover:shadow-sm transition">
       {/* Row 1: name + actions */}
       <div className="flex items-center gap-2 mb-3">
-        <span className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[cashflow.status]}`} />
+        <span className={`w-2 h-2 rounded-full shrink-0 ${dc.dot}`} />
         <p className="flex-1 text-sm font-medium text-gray-800 dark:text-gray-200 truncate min-w-0">{budget.campaign_name}</p>
         {isNew && (
           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-500 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
@@ -162,7 +143,7 @@ const CampaignRow = memo(function CampaignRow({ budget, cashflow, isNew, onEdit,
         </div>
         <div>
           <p className="text-[11px] font-medium text-gray-400 dark:text-gray-500 mb-1">Diario recomendado</p>
-          <p className={`font-bold tabular-nums ${STATUS_TEXT[cashflow.status]}`}>
+          <p className={`font-bold tabular-nums ${dc.text}`}>
             {currency(Math.max(cashflow.dailyRecommended, 0))}
             <span className="text-[11px] font-normal text-gray-400 dark:text-gray-500 ml-0.5">/día</span>
           </p>
@@ -173,14 +154,14 @@ const CampaignRow = memo(function CampaignRow({ budget, cashflow, isNew, onEdit,
       <div>
         <div className="relative h-1.5 bg-gray-200 dark:bg-[#2d2d2d] rounded-full overflow-hidden mb-1">
           <div className="absolute top-0 bottom-0 w-px bg-gray-400 dark:bg-gray-500 z-10" style={{ left: `${expW}%` }} />
-          <div className={`h-full rounded-full ${STATUS_BAR[cashflow.status]}`} style={{ width: `${barW}%` }} />
+          <div className={`h-full rounded-full ${dc.bar}`} style={{ width: `${barW}%` }} />
         </div>
         <div className="flex items-center justify-between text-xs text-gray-400 dark:text-gray-600">
           <span className="tabular-nums">
             <span className="font-semibold text-gray-600 dark:text-gray-400">{cashflow.pctConsumed.toFixed(1)}%</span>
             {' consumido · '}esperado {cashflow.pctExpected.toFixed(1)}%
             {' · '}
-            <span className={`font-medium ${DEVIATION_TEXT[cashflow.status]}`}>
+            <span className={`font-medium ${dc.text}`}>
               {cashflow.deviation > 0 ? '+' : ''}{cashflow.deviation.toFixed(1)}% desvío
             </span>
           </span>

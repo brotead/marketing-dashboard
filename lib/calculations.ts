@@ -27,7 +27,7 @@ export function calcCashflow(
   const dailyRecommended = daysLeft > 0 ? budgetRemaining / daysLeft : 0
 
   let status: CashflowResult['status']
-  if (Math.abs(deviation) <= 5) status = 'on_track'
+  if (Math.abs(deviation) <= 4) status = 'on_track'
   else if (deviation > 5) status = 'overspending'
   else status = 'underspending'
 
