@@ -186,6 +186,46 @@ export async function unhideClient(clientName: string, source: string): Promise<
   if (error) throw new Error(error.message)
 }
 
+// ── Campaign overrides ──────────────────────────────────────────────────────────
+
+export interface CampaignOverride {
+  account_id: string
+  source: string
+  campaign_name_norm: string
+  hidden: boolean
+  manual_spent: number | null
+  manual_budget: number | null
+  paused: boolean
+}
+
+export async function getCampaignOverrides(): Promise<CampaignOverride[]> {
+  const { data, error } = await supabase
+    .from('campaign_overrides')
+    .select('account_id, source, campaign_name_norm, hidden, manual_spent, manual_budget, paused')
+  if (error?.code === '42P01') return []
+  if (error) return []
+  return data ?? []
+}
+
+export async function setCampaignOverride(
+  accountId: string,
+  source: string,
+  campaignNameNorm: string,
+  updates: Partial<Pick<CampaignOverride, 'hidden' | 'manual_spent' | 'manual_budget' | 'paused'>>
+): Promise<void> {
+  const payload: Record<string, unknown> = {
+    account_id: accountId,
+    source,
+    campaign_name_norm: campaignNameNorm,
+    ...updates,
+    updated_at: new Date().toISOString(),
+  }
+  const { error } = await supabase
+    .from('campaign_overrides')
+    .upsert(payload, { onConflict: 'account_id,source,campaign_name_norm' })
+  if (error) throw new Error(error.message)
+}
+
 // ── Client assignments ──────────────────────────────────────────────────────────
 
 export async function getClientAssignments(userId: string): Promise<string[]> {

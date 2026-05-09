@@ -34,6 +34,19 @@ CREATE TABLE IF NOT EXISTS excluded_campaigns (
   campaign_name TEXT NOT NULL,
   campaign_name_norm TEXT NOT NULL,
   excluded_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS campaign_overrides (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  account_id TEXT NOT NULL,
+  source TEXT NOT NULL,
+  campaign_name_norm TEXT NOT NULL,
+  hidden BOOLEAN DEFAULT FALSE,
+  manual_spent NUMERIC,
+  manual_budget NUMERIC,
+  paused BOOLEAN DEFAULT FALSE,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(account_id, source, campaign_name_norm)
 );`
 
 // POST /api/setup — idempotent initial setup (admin only).
