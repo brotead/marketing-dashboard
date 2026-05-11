@@ -115,7 +115,7 @@ function Top3List({ clients }: { clients: ClientAudit[] }) {
           <div className="flex-1 min-w-0">
             <p className="text-[11px] font-semibold text-gray-800 dark:text-gray-100 truncate leading-tight">{c.client_name}</p>
             <p className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums leading-tight mt-0.5">
-              {Math.round(c.conversions).toLocaleString('es-AR')} msg
+              {Math.round(c.messaging_total).toLocaleString('es-AR')} msg
               {c.cpl > 0 && <> · {currency(c.cpl)}/CPA</>}
               {' · '}{c.ctr.toFixed(2)}% CTR
             </p>
@@ -156,28 +156,31 @@ const DashboardSidebar = memo(function DashboardSidebar({
     for (const c of auditClients) {
       if (!activeSet.has(c.client_name)) continue
 
-      // CTR drop (MOM)
-      if (c.mom_ctr_change !== null && c.mom_ctr_change < -10) {
-        raw.push({ client: c.client_name, metric: 'CTR', change: c.mom_ctr_change, severity: Math.abs(c.mom_ctr_change) })
+      // CTR drop — MOM preferred, fallback to recent-vs-prev
+      const ctrChange = c.mom_ctr_change ?? c.ctr_change
+      if (ctrChange !== null && ctrChange < -5) {
+        raw.push({ client: c.client_name, metric: 'CTR', change: ctrChange, severity: Math.abs(ctrChange) })
       }
 
-      // CPA rise MOM — messaging CPA
-      if (c.has_cpl && c.mom_cpl_change !== null && c.mom_cpl_change > 15) {
-        raw.push({ client: c.client_name, metric: 'CPA', change: c.mom_cpl_change, severity: c.mom_cpl_change })
+      // CPA rise — messaging CPA, MOM preferred
+      const cpaChange = c.mom_cpl_change ?? c.cpl_change
+      if (c.has_cpl && cpaChange !== null && cpaChange > 8) {
+        raw.push({ client: c.client_name, metric: 'CPA', change: cpaChange, severity: cpaChange })
       }
 
-      // CPA rise MOM — purchase CPA
-      if (c.cpa_purchases > 0 && c.mom_cpa_purchases_change !== null && c.mom_cpa_purchases_change > 15) {
-        raw.push({ client: c.client_name, metric: 'CPA', change: c.mom_cpa_purchases_change, severity: c.mom_cpa_purchases_change })
+      // CPA rise — purchase CPA, MOM preferred
+      const cpaPurchChange = c.mom_cpa_purchases_change ?? c.cpa_purchases_change
+      if (c.cpa_purchases > 0 && cpaPurchChange !== null && cpaPurchChange > 8) {
+        raw.push({ client: c.client_name, metric: 'CPA', change: cpaPurchChange, severity: cpaPurchChange })
       }
 
-      // Inversión — recent 7d vs prev 7d trend
-      if (c.spend_change !== null && Math.abs(c.spend_change) > 20) {
+      // Inversión — recent 7d vs prev 7d
+      if (c.spend_change !== null && Math.abs(c.spend_change) > 10) {
         raw.push({ client: c.client_name, metric: 'Inversión', change: c.spend_change, severity: Math.abs(c.spend_change) })
       }
     }
 
-    // One alert per client — keep the worst (highest severity) per client, then top 5
+    // One alert per client — keep worst (highest severity), then top 5
     const byClient = new Map<string, DashAlert>()
     for (const a of raw) {
       const existing = byClient.get(a.client)
@@ -188,12 +191,12 @@ const DashboardSidebar = memo(function DashboardSidebar({
       .slice(0, 5)
   }, [auditClients, activeSet])
 
-  // Top 3: only messaging clients, ordered by most conversations
+  // Top 3: ALL clients ordered by total messaging conversations (messaging_total = raw, all campaigns)
   const top3 = useMemo<ClientAudit[]>(() => {
     if (!auditClients) return []
     return auditClients
-      .filter(c => activeSet.has(c.client_name) && c.client_type === 'messaging' && c.conversions > 0)
-      .sort((a, b) => b.conversions - a.conversions)
+      .filter(c => activeSet.has(c.client_name) && c.messaging_total > 0)
+      .sort((a, b) => b.messaging_total - a.messaging_total)
       .slice(0, 3)
   }, [auditClients, activeSet])
 

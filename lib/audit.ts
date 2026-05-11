@@ -331,6 +331,8 @@ export interface ClientAudit {
   mom_ctr_change:       number | null
   mom_cpa_purchases:        number
   mom_cpa_purchases_change: number | null
+  // Raw messaging conversations — always set regardless of client_type
+  messaging_total: number
 }
 
 export interface AuditData {
@@ -564,6 +566,7 @@ export async function runAudit(
       mom_cpl_change, mom_ctr_change,
       mom_cpa_purchases,
       mom_cpa_purchases_change,
+      messaging_total: recent.messaging,
       ...item,
     })
   }
@@ -613,6 +616,7 @@ export async function runAudit(
       mom_ctr_change:      null,
       mom_cpa_purchases:        0,
       mom_cpa_purchases_change: null,
+      messaging_total:          0,
     })
   }
 
