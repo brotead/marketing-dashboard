@@ -2,7 +2,7 @@
 
 import { memo, useMemo } from 'react'
 import { TrendingDown, TrendingUp, AlertTriangle } from 'lucide-react'
-import type { ClientAudit, Health } from '@/lib/audit'
+import type { ClientAudit } from '@/lib/audit'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -29,23 +29,7 @@ function currency(n: number) {
   return n.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 })
 }
 
-const HEALTH_LABEL: Record<Health, string> = {
-  excellent: 'Excelente',
-  stable:    'Estable',
-  review:    'Revisar',
-  priority:  'Prioridad',
-}
-
-const HEALTH_COLOR: Record<Health, string> = {
-  excellent: 'text-emerald-500 dark:text-emerald-400',
-  stable:    'text-blue-500 dark:text-blue-400',
-  review:    'text-amber-500 dark:text-amber-400',
-  priority:  'text-red-500 dark:text-red-400',
-}
-
-const RANK_BG = [
-  'bg-violet-600', 'bg-blue-600', 'bg-cyan-600', 'bg-teal-600', 'bg-slate-600',
-]
+const RANK_BG = ['bg-violet-600', 'bg-blue-600', 'bg-cyan-600']
 
 // ── Sub-widgets ───────────────────────────────────────────────────────────────
 
@@ -115,50 +99,29 @@ function AlertasList({ alerts, month, year }: { alerts: DashAlert[]; month: numb
   )
 }
 
-function Top5List({ clients }: { clients: ClientAudit[] }) {
+function Top3List({ clients }: { clients: ClientAudit[] }) {
   if (clients.length === 0) {
-    return <p className="text-xs text-gray-400 dark:text-gray-600 py-2">Sin datos disponibles.</p>
+    return <p className="text-xs text-gray-400 dark:text-gray-600 py-2">Sin clientes de mensajes con datos.</p>
   }
 
   return (
     <div className="divide-y divide-gray-50 dark:divide-white/[0.04]">
-      {clients.map((c, i) => {
-        const isMessaging = c.client_type === 'messaging'
-        return (
-          <div key={c.client_name} className="flex items-start gap-2.5 py-2.5 first:pt-0 last:pb-0">
-            <span className="text-[11px] font-bold text-gray-300 dark:text-gray-700 w-3 shrink-0 mt-1">{i + 1}</span>
-            <div className={`w-6 h-6 rounded-lg ${RANK_BG[i] ?? 'bg-gray-500'} flex items-center justify-center shrink-0`}>
-              <span className="text-white text-[10px] font-bold">{c.client_name[0]}</span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-[11px] font-semibold text-gray-800 dark:text-gray-100 truncate">{c.client_name}</span>
-                <span className={`text-[11px] font-bold tabular-nums ${HEALTH_COLOR[c.health]}`}>{c.score}</span>
-              </div>
-              <p className={`text-[10px] font-medium mt-0 ${HEALTH_COLOR[c.health]}`}>{HEALTH_LABEL[c.health]}</p>
-              <div className="flex items-center gap-2 mt-1 flex-wrap">
-                <span className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums">CTR {c.ctr.toFixed(2)}%</span>
-                <span className="text-gray-200 dark:text-gray-700 text-[10px]">·</span>
-                <span className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums">{currency(c.spend)}</span>
-                {isMessaging && c.conversions > 0 && (
-                  <>
-                    <span className="text-gray-200 dark:text-gray-700 text-[10px]">·</span>
-                    <span className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums">
-                      {Math.round(c.conversions).toLocaleString('es-AR')} msg
-                    </span>
-                  </>
-                )}
-                {isMessaging && c.cpl > 0 && (
-                  <>
-                    <span className="text-gray-200 dark:text-gray-700 text-[10px]">·</span>
-                    <span className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums">{currency(c.cpl)}/msg</span>
-                  </>
-                )}
-              </div>
-            </div>
+      {clients.map((c, i) => (
+        <div key={c.client_name} className="flex items-center gap-2 py-2 first:pt-0 last:pb-0">
+          <span className="text-[10px] font-bold text-gray-300 dark:text-gray-700 w-3 shrink-0 tabular-nums">{i + 1}</span>
+          <div className={`w-5 h-5 rounded-md ${RANK_BG[i] ?? 'bg-gray-500'} flex items-center justify-center shrink-0`}>
+            <span className="text-white text-[9px] font-bold">{c.client_name[0]}</span>
           </div>
-        )
-      })}
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-semibold text-gray-800 dark:text-gray-100 truncate leading-tight">{c.client_name}</p>
+            <p className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums leading-tight mt-0.5">
+              {Math.round(c.conversions).toLocaleString('es-AR')} msg
+              {c.cpl > 0 && <> · {currency(c.cpl)}/CPA</>}
+              {' · '}{c.ctr.toFixed(2)}% CTR
+            </p>
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
@@ -214,19 +177,24 @@ const DashboardSidebar = memo(function DashboardSidebar({
       }
     }
 
-    return raw.sort((a, b) => b.severity - a.severity).slice(0, 5)
+    // One alert per client — keep the worst (highest severity) per client, then top 5
+    const byClient = new Map<string, DashAlert>()
+    for (const a of raw) {
+      const existing = byClient.get(a.client)
+      if (!existing || a.severity > existing.severity) byClient.set(a.client, a)
+    }
+    return Array.from(byClient.values())
+      .sort((a, b) => b.severity - a.severity)
+      .slice(0, 5)
   }, [auditClients, activeSet])
 
-  const top5 = useMemo<ClientAudit[]>(() => {
+  // Top 3: only messaging clients, ordered by most conversations
+  const top3 = useMemo<ClientAudit[]>(() => {
     if (!auditClients) return []
     return auditClients
-      .filter(c => activeSet.has(c.client_name) && c.spend > 0)
-      .sort((a, b) => {
-        const ctrDiff = b.ctr - a.ctr
-        if (Math.abs(ctrDiff) > 0.05) return ctrDiff
-        return b.spend - a.spend
-      })
-      .slice(0, 5)
+      .filter(c => activeSet.has(c.client_name) && c.client_type === 'messaging' && c.conversions > 0)
+      .sort((a, b) => b.conversions - a.conversions)
+      .slice(0, 3)
   }, [auditClients, activeSet])
 
   return (
@@ -239,11 +207,11 @@ const DashboardSidebar = memo(function DashboardSidebar({
         }
       </WidgetShell>
 
-      {/* Top 5 clientes */}
-      <WidgetShell title="Top 5 clientes del mes" sub="CTR · Inversión · Resultados">
+      {/* Top 3 clientes — mensajes */}
+      <WidgetShell title="Top 3 clientes del mes" sub="Por mensajes iniciados">
         {loading || !auditClients
-          ? <SkeletonWidget rows={5} />
-          : <Top5List clients={top5} />
+          ? <SkeletonWidget rows={3} />
+          : <Top3List clients={top3} />
         }
       </WidgetShell>
     </div>
