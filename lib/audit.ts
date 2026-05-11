@@ -501,10 +501,19 @@ export async function runAudit(
   const momFrom = new Date(recentFrom); momFrom.setMonth(momFrom.getMonth() - 1)
   const momTo   = new Date(recentTo);   momTo.setMonth(momTo.getMonth()   - 1)
 
-  const [recentRows, prevRows, momRows] = await Promise.all([
+  // Monthly messaging total: 1st of month → yesterday (matches Windsor dashboard view)
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
+  const monthEnd   = sub(today, 1)
+  const MSG_FIELDS = 'account_id,actions_onsite_conversion_messaging_conversation_started_7d'
+  const fetchMonthMsg = fmt(monthEnd) >= fmt(monthStart)
+    ? fetchPeriod(fmt(monthStart), fmt(monthEnd), MSG_FIELDS, allowedIds)
+    : Promise.resolve<RawRow[]>([])
+
+  const [recentRows, prevRows, momRows, monthMsgRows] = await Promise.all([
     fetchPeriod(fmt(recentFrom), fmt(recentTo), ACCOUNT_FIELDS, allowedIds),
     fetchPeriod(fmt(prevFrom),   fmt(prevTo),   ACCOUNT_FIELDS, allowedIds),
     fetchPeriod(fmt(momFrom),    fmt(momTo),    ACCOUNT_FIELDS, allowedIds),
+    fetchMonthMsg,
   ])
 
   // Index prev and mom by account_id
@@ -515,6 +524,14 @@ export async function runAudit(
   const momMap = new Map<string, Metrics>()
   for (const r of momRows) {
     if (r.account_id) momMap.set(r.account_id, toMetrics(r))
+  }
+  // Monthly messaging count per account
+  const monthMsgMap = new Map<string, number>()
+  for (const r of monthMsgRows) {
+    if (r.account_id) {
+      const v = r.actions_onsite_conversion_messaging_conversation_started_7d
+      monthMsgMap.set(r.account_id, v != null ? Number(v) : 0)
+    }
   }
 
   const results: ClientAudit[] = []
@@ -566,7 +583,7 @@ export async function runAudit(
       mom_cpl_change, mom_ctr_change,
       mom_cpa_purchases,
       mom_cpa_purchases_change,
-      messaging_total: recent.messaging,
+      messaging_total: monthMsgMap.get(r.account_id) ?? recent.messaging,
       ...item,
     })
   }
