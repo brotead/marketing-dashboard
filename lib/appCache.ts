@@ -104,6 +104,13 @@ class AppCache {
     this.store.delete(key)
   }
 
+  /** Remove all keys whose name starts with prefix. */
+  invalidateHardByPrefix(prefix: string): void {
+    for (const k of this.store.keys()) {
+      if (k.startsWith(prefix)) this.store.delete(k)
+    }
+  }
+
   /** Remove all keys. */
   invalidateAllHard(): void {
     this.store.clear()

@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json(data, {
-      headers: { 'Cache-Control': 'private, max-age=180, stale-while-revalidate=600' },
+      headers: { 'Cache-Control': 'no-store' },
     })
   } catch (err) {
     console.error('[Audit/Campaigns]', err)

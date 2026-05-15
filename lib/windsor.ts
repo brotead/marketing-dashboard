@@ -1,4 +1,5 @@
 import type { AccountData, CampaignSpend, AdCreative, FatigueAd, FatigueSignal } from './types'
+import { getMetaDirectIds, fetchMetaMonthlyAccounts } from './meta'
 
 const WINDSOR_FACEBOOK  = 'https://connectors.windsor.ai/facebook'
 const WINDSOR_GOOGLE    = 'https://connectors.windsor.ai/google_ads'
@@ -619,8 +620,17 @@ export async function fetchWindsorAccounts(
     }
   }
 
+  // Merge Meta-direct accounts (fetched from Meta API instead of Windsor)
+  const metaDirectIds = getMetaDirectIds()
+  const existingIds = new Set(meta.accounts.map(a => a.account_id))
+  const missingMetaDirect = Array.from(metaDirectIds).filter(id => !existingIds.has(id))
+  const metaDirectAccounts = await fetchMetaMonthlyAccounts(year, month, missingMetaDirect).catch(e => {
+    console.error('[Meta] fetchMetaMonthlyAccounts error:', e)
+    return [] as AccountData[]
+  })
+
   const result: WindsorCached = {
-    accounts:  [...meta.accounts,  ...google.accounts],
+    accounts:  [...meta.accounts, ...metaDirectAccounts, ...google.accounts],
     campaigns: [...meta.campaigns, ...google.campaigns],
     adsets:    [...meta.adsets,    ...google.adsets],
   }

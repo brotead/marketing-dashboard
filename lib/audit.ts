@@ -1,3 +1,5 @@
+import { getMetaDirectIds, fetchMetaAuditRows, fetchMetaCampaignRows } from './meta'
+
 const WINDSOR_FACEBOOK = 'https://connectors.windsor.ai/facebook'
 
 // ── In-memory audit cache (15 min TTL) ─────────────────────────────────────────
@@ -109,26 +111,49 @@ async function fetchPeriod(
   fields:      string,
   allowedIds?: Set<string>
 ): Promise<RawRow[]> {
-  const apiKey = process.env.WINDSOR_API_KEY
-  if (!apiKey) throw new Error('WINDSOR_API_KEY no configurada')
+  const metaDirectIds = getMetaDirectIds()
 
-  const url = new URL(WINDSOR_FACEBOOK)
-  url.searchParams.set('api_key',   apiKey)
-  url.searchParams.set('date_from', dateFrom)
-  url.searchParams.set('date_to',   dateTo)
-  url.searchParams.set('fields',    fields)
-  url.searchParams.set('_renderer', 'json')
+  // Determine which accounts should come from Windsor vs Meta API
+  const metaIds = allowedIds
+    ? new Set([...allowedIds].filter(id => metaDirectIds.has(id)))
+    : metaDirectIds
+  const windsorAllowed = allowedIds
+    ? new Set([...allowedIds].filter(id => !metaDirectIds.has(id)))
+    : undefined
 
-  const res = await fetch(url.toString(), { cache: 'no-store' })
-  if (!res.ok) throw new Error(`Windsor error ${res.status}`)
+  // Use campaign-level Meta fetch when fields include campaign_id
+  const isAccountLevel = !fields.includes('campaign_id')
+  const metaFetch = isAccountLevel
+    ? fetchMetaAuditRows(dateFrom, dateTo, Array.from(metaIds)) as Promise<RawRow[]>
+    : fetchMetaCampaignRows(dateFrom, dateTo, Array.from(metaIds)) as Promise<RawRow[]>
 
-  const json = await res.json()
-  let rows: RawRow[] = json.data ?? []
+  // Skip Windsor entirely when all requested accounts are Meta-direct
+  const needsWindsor = windsorAllowed === undefined || windsorAllowed.size > 0
+  const windsorFetch: Promise<RawRow[]> = needsWindsor
+    ? (async (): Promise<RawRow[]> => {
+        const apiKey = process.env.WINDSOR_API_KEY
+        if (!apiKey) throw new Error('WINDSOR_API_KEY no configurada')
+        const url = new URL(WINDSOR_FACEBOOK)
+        url.searchParams.set('api_key',   apiKey)
+        url.searchParams.set('date_from', dateFrom)
+        url.searchParams.set('date_to',   dateTo)
+        url.searchParams.set('fields',    fields)
+        url.searchParams.set('_renderer', 'json')
+        const res = await fetch(url.toString(), { cache: 'no-store' })
+        if (!res.ok) throw new Error(`Windsor error ${res.status}`)
+        const json = await res.json()
+        let rows: RawRow[] = json.data ?? []
+        if (windsorAllowed && windsorAllowed.size > 0) {
+          rows = rows.filter(r => r.account_id && windsorAllowed.has(r.account_id))
+        }
+        return rows
+      })()
+    : Promise.resolve([])
 
-  if (allowedIds && allowedIds.size > 0) {
-    rows = rows.filter(r => r.account_id && allowedIds.has(r.account_id))
-  }
-  return rows
+  // Fetch Windsor and Meta in parallel
+  const [windsorRows, metaRows] = await Promise.all([windsorFetch, metaFetch])
+
+  return [...windsorRows, ...metaRows]
 }
 
 // ── Signal thresholds ────────────────────────────────────────────────────────
@@ -361,8 +386,10 @@ export interface CampaignData {
 
 function buildAuditItem(recent: Metrics, prev: Metrics | null, clientType: ClientType = 'ig') {
   // For messaging clients: CPL = spend / messaging conversations
-  // For IG/other clients: CPL = spend / lead results
-  const effectiveResults = clientType === 'messaging' ? recent.messaging : recent.results
+  // For IG clients: CPL = spend / ig_visits (lead results fall back to ig profile visits)
+  const effectiveResults = clientType === 'messaging'
+    ? recent.messaging
+    : (recent.results > 0 ? recent.results : recent.ig_visits)
   const hasCpl = effectiveResults > 0
   const cpl_r  = hasCpl ? recent.spend / effectiveResults : 0
 
@@ -379,7 +406,9 @@ function buildAuditItem(recent: Metrics, prev: Metrics | null, clientType: Clien
   if (prev && prev.impressions > 0) {
     if (prev.ctr > 0) ctr_change = ((recent.ctr - prev.ctr) / prev.ctr) * 100
     if (prev.cpm > 0) cpm_change = ((recent.cpm - prev.cpm) / prev.cpm) * 100
-    const prevEffectiveResults = clientType === 'messaging' ? prev.messaging : prev.results
+    const prevEffectiveResults = clientType === 'messaging'
+      ? prev.messaging
+      : (prev.results > 0 ? prev.results : prev.ig_visits)
     if (hasCpl && prevEffectiveResults > 0) {
       const cpl_p = prev.spend / prevEffectiveResults
       if (cpl_p > 0) cpl_change = ((cpl_r - cpl_p) / cpl_p) * 100
@@ -555,7 +584,7 @@ export async function runAudit(
     const mom = momMap.get(r.account_id) ?? null
     const mom_ctr = mom?.ctr ?? 0
     const momEffective = mom
-      ? (clientType === 'messaging' ? mom.messaging : mom.results)
+      ? (clientType === 'messaging' ? mom.messaging : (mom.results > 0 ? mom.results : mom.ig_visits))
       : 0
     const mom_cpl = momEffective > 0 ? (mom!.spend / momEffective) : 0
 

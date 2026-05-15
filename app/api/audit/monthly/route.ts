@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getClientType } from '@/lib/audit'
+import { getMetaDirectIds, fetchMetaDailyRows } from '@/lib/meta'
 
 export const dynamic = 'force-dynamic'
 
@@ -48,12 +49,12 @@ async function fetchDays(
     (r: Record<string, unknown>) => !r.account_id || r.account_id === accountId,
   )
   return rows.map(r => ({
-    date:       String(r.date ?? ''),
-    spend:      n(r.spend),
+    date:        String(r.date ?? ''),
+    spend:       n(r.spend),
     impressions: n(r.impressions),
     link_clicks: n(r.link_clicks),
-    messaging:  n(r.actions_onsite_conversion_messaging_conversation_started_7d),
-    ig_visits:  n(r.actions_instagram_profile_visit),
+    messaging:   n(r.actions_onsite_conversion_messaging_conversation_started_7d),
+    ig_visits:   n(r.actions_instagram_profile_visit),
   }))
 }
 
@@ -64,8 +65,10 @@ export async function GET(req: NextRequest) {
   const clientName = req.nextUrl.searchParams.get('client_name') ?? ''
   if (!accountId) return NextResponse.json({ error: 'Missing account_id' }, { status: 400 })
 
+  const isMetaDirect = getMetaDirectIds().has(accountId)
+
   const apiKey = process.env.WINDSOR_API_KEY
-  if (!apiKey) return NextResponse.json({ error: 'WINDSOR_API_KEY not set' }, { status: 500 })
+  if (!isMetaDirect && !apiKey) return NextResponse.json({ error: 'WINDSOR_API_KEY not set' }, { status: 500 })
 
   const today     = new Date()
   const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1)
@@ -76,9 +79,13 @@ export async function GET(req: NextRequest) {
   const prevFrom = new Date(today.getFullYear(), today.getMonth() - 1, 1)
   const prevTo   = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate() - 1)
 
+  const fetchRows = isMetaDirect
+    ? (from: Date, to: Date) => fetchMetaDailyRows(accountId, fmt(from), fmt(to))
+    : (from: Date, to: Date) => fetchDays(apiKey!, accountId, fmt(from), fmt(to))
+
   const [curRows, prevRows] = await Promise.all([
-    fetchDays(apiKey, accountId, fmt(curFrom), fmt(curTo)),
-    fetchDays(apiKey, accountId, fmt(prevFrom), fmt(prevTo)),
+    fetchRows(curFrom, curTo),
+    fetchRows(prevFrom, prevTo),
   ])
 
   const clientType = getClientType(clientName)

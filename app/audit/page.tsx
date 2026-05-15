@@ -90,7 +90,7 @@ function CampaignSection({ accountId, convFilter }: { accountId: string; convFil
   const [error, setError]     = useState<string | null>(null)
 
   useEffect(() => {
-    fetch(`/api/audit/campaigns?account_id=${accountId}`)
+    fetch(`/api/audit/campaigns?account_id=${accountId}`, { cache: 'no-store' })
       .then(r => r.json())
       .then(json => { if (json.error) throw new Error(json.error); setData(json) })
       .catch(e => setError(String(e)))
@@ -361,8 +361,11 @@ export default function AuditPage() {
     if (!hasCached) setLoading(true)
     setError(null)
     try {
+      // When cache is empty (hard-invalidated or first load), pass force=true so the
+      // server also bypasses its own in-memory cache and returns the current client list.
+      const serverForce = force || !hasCached
       const json = await appCache.fetch('audit', async () => {
-        const res = await fetch(`/api/audit${force ? '?force=true' : ''}`)
+        const res = await fetch(`/api/audit${serverForce ? '?force=true' : ''}`)
         return res.json()
       }, TTL.MIN15)
       if (json.error) throw new Error(json.error)
