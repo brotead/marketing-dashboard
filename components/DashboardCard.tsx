@@ -59,8 +59,8 @@ const DashboardCard = memo(function DashboardCard({
   const pacingColor = dc.text
   const pacingLabel = dc.label
 
-  const hasMeta   = !!metaAccount   || metaBudget > 0
-  const hasGoogle = !!googleAccount || googleBudget > 0
+  const hasMeta   = !!metaAccount   || metaBudgets.length > 0
+  const hasGoogle = !!googleAccount || googleBudgets.length > 0
 
   return (
     <div

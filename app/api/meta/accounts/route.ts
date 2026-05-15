@@ -5,22 +5,18 @@ export const dynamic = 'force-dynamic'
 
 const META_BASE = 'https://graph.facebook.com/v21.0'
 
-async function get(path: string, token: string): Promise<Record<string, unknown> | null> {
+async function fetchAccounts(url: string): Promise<{ id: string; name: string }[]> {
   try {
-    const url = new URL(`${META_BASE}${path}`)
-    url.searchParams.set('access_token', token)
-    url.searchParams.set('limit', '200')
-    const res = await fetch(url.toString(), { cache: 'no-store' })
-    if (!res.ok) return null
-    return await res.json()
+    const res = await fetch(url, { cache: 'no-store' })
+    if (!res.ok) return []
+    const json = await res.json()
+    return json.data ?? []
   } catch {
-    return null
+    return []
   }
 }
 
-interface RawAccount { id: string; name: string; account_status?: number }
-
-function toAccountData(a: RawAccount): AccountData {
+function toAccountData(a: { id: string; name: string }): AccountData {
   return {
     account_id:     a.id.replace('act_', ''),
     account_name:   a.name,
@@ -37,39 +33,46 @@ export async function GET() {
     return NextResponse.json({ error: 'META_ACCESS_TOKEN no configurado' }, { status: 500 })
   }
 
-  try {
-    const map = new Map<string, AccountData>()
+  const bizId = process.env.META_BUSINESS_ID
+  const map   = new Map<string, AccountData>()
 
-    const addAccounts = (rows: RawAccount[]) => {
-      for (const a of rows) {
-        const id = a.id.replace('act_', '')
-        if (!map.has(id)) map.set(id, toAccountData(a))
-      }
+  const add = (rows: { id: string; name: string }[]) => {
+    for (const a of rows) {
+      const id = a.id.replace('act_', '')
+      if (!map.has(id)) map.set(id, toAccountData(a))
     }
-
-    // 1. Accounts directly linked to the user token
-    const direct = await get('/me/adaccounts?fields=id,name,account_status', token)
-    addAccounts((direct?.data ?? []) as RawAccount[])
-
-    // 2. Business Manager accounts (owned + client)
-    const bizJson = await get('/me/businesses?fields=id,name', token)
-    const businesses: { id: string }[] = (bizJson?.data ?? []) as { id: string }[]
-
-    await Promise.all(businesses.map(async (biz) => {
-      const [owned, clients] = await Promise.all([
-        get(`/${biz.id}/owned_ad_accounts?fields=id,name,account_status`, token),
-        get(`/${biz.id}/client_ad_accounts?fields=id,name,account_status`, token),
-      ])
-      addAccounts((owned?.data  ?? []) as RawAccount[])
-      addAccounts((clients?.data ?? []) as RawAccount[])
-    }))
-
-    const accounts = Array.from(map.values())
-    console.log(`[Meta accounts] found ${accounts.length} accounts (${businesses.length} business managers)`)
-
-    return NextResponse.json({ accounts })
-  } catch (err) {
-    console.error('[Meta accounts]', err)
-    return NextResponse.json({ error: String(err) }, { status: 500 })
   }
+
+  const base = `&access_token=${token}&limit=200`
+
+  // Run all fetches in parallel
+  const fetches: Promise<void>[] = [
+    fetchAccounts(`${META_BASE}/me/adaccounts?fields=id,name,account_status${base}`)
+      .then(add),
+  ]
+
+  if (bizId) {
+    fetches.push(
+      fetchAccounts(`${META_BASE}/${bizId}/owned_ad_accounts?fields=id,name,account_status${base}`)
+        .then(add),
+      fetchAccounts(`${META_BASE}/${bizId}/client_ad_accounts?fields=id,name,account_status${base}`)
+        .then(add),
+    )
+  }
+
+  // Also try dynamic business discovery as fallback
+  const businesses = await fetchAccounts(`${META_BASE}/me/businesses?fields=id,name${base}`)
+  for (const biz of businesses) {
+    fetches.push(
+      fetchAccounts(`${META_BASE}/${biz.id}/owned_ad_accounts?fields=id,name,account_status${base}`).then(add),
+      fetchAccounts(`${META_BASE}/${biz.id}/client_ad_accounts?fields=id,name,account_status${base}`).then(add),
+    )
+  }
+
+  await Promise.all(fetches)
+
+  const accounts = Array.from(map.values())
+  console.log(`[Meta accounts] ${accounts.length} accounts found`)
+
+  return NextResponse.json({ accounts })
 }

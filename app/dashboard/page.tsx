@@ -73,12 +73,13 @@ export default function DashboardPage() {
     if (force) {
       appCache.invalidateHard(`windsor-${year}-${month}`)
       appCache.invalidateHard('budgets')
+      appCache.invalidateHard('meta-accounts')
     }
     const hasCached = appCache.has(`windsor-${year}-${month}`) && appCache.has('budgets')
     if (!hasCached && !silent) setLoading(true)
     setError(null)
     try {
-      const [windsorJson, bs] = await Promise.all([
+      const [windsorJson, bs, metaApiJson] = await Promise.all([
         appCache.fetch(`windsor-${year}-${month}`, async () => {
           const r = await fetch(`/api/windsor?year=${year}&month=${month}`)
           if (!r.ok) throw new Error('Error al conectar con Windsor')
@@ -86,8 +87,13 @@ export default function DashboardPage() {
         }, TTL.HOUR),
         appCache.fetch('budgets', () =>
           fetch('/api/budgets').then(r => r.json()), TTL.MIN1),
+        appCache.fetch('meta-accounts', () =>
+          fetch('/api/meta/accounts').then(r => r.ok ? r.json() : { accounts: [] }).catch(() => ({ accounts: [] })), TTL.MIN15),
       ])
-      setAccounts(windsorJson.data ?? [])
+      const windsorAccounts: AccountData[] = windsorJson.data ?? []
+      const windsorIds = new Set(windsorAccounts.filter(a => a.source === 'facebook').map(a => a.account_id))
+      const metaOnlyAccounts: AccountData[] = (metaApiJson.accounts ?? []).filter((a: AccountData) => !windsorIds.has(a.account_id))
+      setAccounts([...windsorAccounts, ...metaOnlyAccounts])
       setBudgets(bs)
     } catch (e) {
       if (!silent) setError(String(e))
