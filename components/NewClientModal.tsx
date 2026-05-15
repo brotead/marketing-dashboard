@@ -80,7 +80,7 @@ function AccountList({
   }
   if (candidates.length === 0) return (
     <p className="text-xs text-gray-400 dark:text-gray-500 italic py-1">
-      No hay cuentas disponibles en Windsor para este mes.
+      No se encontraron cuentas publicitarias disponibles.
     </p>
   )
   return (
