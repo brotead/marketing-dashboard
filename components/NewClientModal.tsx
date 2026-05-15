@@ -516,25 +516,6 @@ export default function NewClientModal({ onClose, onCreated }: Props) {
                 <span className="font-bold">M</span> Meta Ads
                 {hasMeta && <Check size={13} />}
               </button>
-              {hasMeta && (
-                <div className="flex items-center gap-1 col-span-2 mt-1">
-                  <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium mr-1">Fuente:</span>
-                  {(['windsor', 'meta_api'] as const).map(src => (
-                    <button
-                      key={src}
-                      type="button"
-                      onClick={() => setMetaSource(src)}
-                      className={`px-2.5 py-0.5 rounded-lg text-[10px] font-semibold transition-all border ${
-                        metaSource === src
-                          ? 'bg-[#1877F2]/10 border-[#1877F2]/40 text-[#1877F2] dark:text-[#4a9eff]'
-                          : 'bg-white dark:bg-[#1a1a1a] border-gray-200 dark:border-[#2a2a2a] text-gray-400 hover:border-gray-300'
-                      }`}
-                    >
-                      {src === 'windsor' ? 'Windsor' : 'Meta API'}
-                    </button>
-                  ))}
-                </div>
-              )}
               <button
                 type="button"
                 onClick={() => { if (hasGoogle && !hasMeta) return; setHasGoogle(v => !v) }}
@@ -548,6 +529,25 @@ export default function NewClientModal({ onClose, onCreated }: Props) {
                 {hasGoogle && <Check size={13} />}
               </button>
             </div>
+            {hasMeta && (
+              <div className="flex items-center gap-2 mt-2.5">
+                <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">Fuente Meta:</span>
+                {(['windsor', 'meta_api'] as const).map(src => (
+                  <button
+                    key={src}
+                    type="button"
+                    onClick={() => setMetaSource(src)}
+                    className={`px-3 py-1 rounded-lg text-[11px] font-semibold transition-all border ${
+                      metaSource === src
+                        ? 'bg-[#1877F2]/10 border-[#1877F2]/50 text-[#1877F2] dark:text-[#4a9eff]'
+                        : 'bg-white dark:bg-[#1a1a1a] border-gray-200 dark:border-[#2a2a2a] text-gray-400 hover:border-gray-300 dark:hover:border-white/20'
+                    }`}
+                  >
+                    {src === 'windsor' ? 'Windsor' : 'Meta API directa'}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div>
