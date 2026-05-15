@@ -1,4 +1,5 @@
 import type { AccountData } from './types'
+import { supabase } from './supabase'
 
 const META_BASE = 'https://graph.facebook.com/v21.0'
 
@@ -6,6 +7,34 @@ const META_BASE = 'https://graph.facebook.com/v21.0'
 export function getMetaDirectIds(): Set<string> {
   const raw = process.env.META_DIRECT_ACCOUNTS ?? ''
   return new Set(raw.split(',').map(s => s.trim()).filter(Boolean))
+}
+
+// In-memory cache for DB-backed meta_direct accounts
+let _metaDirectDbCache: Set<string> | null = null
+let _metaDirectDbCacheTs = 0
+const META_DIRECT_CACHE_TTL = 5 * 60 * 1000
+
+export function invalidateMetaDirectCache(): void {
+  _metaDirectDbCache = null
+  _metaDirectDbCacheTs = 0
+}
+
+// Returns env-var IDs PLUS any IDs stored in the meta_direct_accounts Supabase table.
+export async function getMetaDirectIdsFull(): Promise<Set<string>> {
+  const now = Date.now()
+  if (_metaDirectDbCache && now - _metaDirectDbCacheTs < META_DIRECT_CACHE_TTL) {
+    return new Set(_metaDirectDbCache)
+  }
+  const ids = getMetaDirectIds()
+  try {
+    const { data, error } = await supabase.from('meta_direct_accounts').select('account_id')
+    if (!error && data) {
+      for (const row of data) ids.add(row.account_id)
+    }
+  } catch { /* table may not exist yet — safe fallback */ }
+  _metaDirectDbCache = new Set(ids)
+  _metaDirectDbCacheTs = now
+  return new Set(ids)
 }
 
 interface MetaAction {

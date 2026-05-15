@@ -389,7 +389,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Sticky sidebar — hidden on small screens */}
-        <div className="hidden xl:block w-[272px] shrink-0 sticky top-6 self-start">
+        <div className="hidden xl:block w-[272px] shrink-0 sticky top-8 self-start mt-[54px]">
           <DashboardSidebar
             auditClients={auditClients}
             activeClients={activeClients}

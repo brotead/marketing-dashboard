@@ -25,12 +25,21 @@ export async function GET(req: NextRequest) {
     const allowedIds  = new Set<string>()
     const clientNames: Record<string, string> = {}
 
+    // Exclude accounts where ALL non-auto campaigns are paused (matches dashboard "PAUSA" state)
+    const accountHasActive = new Set<string>()
+    const accountExists    = new Set<string>()
     for (const b of fbBudgets) {
-      if (b.account_id && b.client_name) {
+      if (!b.account_id || b.campaign_name === '__auto__') continue
+      accountExists.add(b.account_id)
+      if (!b.paused) accountHasActive.add(b.account_id)
+    }
+
+    for (const b of fbBudgets) {
+      if (!b.account_id || !b.client_name) continue
+      if (accountExists.has(b.account_id) && !accountHasActive.has(b.account_id)) continue
+      if (!allowedIds.has(b.account_id)) {
         allowedIds.add(b.account_id)
-        if (!clientNames[b.account_id]) {
-          clientNames[b.account_id] = b.client_name
-        }
+        clientNames[b.account_id] = b.client_name
       }
     }
 

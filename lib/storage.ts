@@ -168,6 +168,21 @@ export async function getHiddenClients(_ctx: WorkspaceCtx): Promise<HiddenClient
   return data ?? []
 }
 
+// ── Meta Direct Accounts ────────────────────────────────────────────────────────
+// Accounts stored here bypass Windsor and are fetched directly from Meta API.
+// Table DDL (run once in Supabase):
+//   create table if not exists meta_direct_accounts (
+//     account_id text primary key,
+//     created_at timestamptz default now()
+//   );
+
+export async function addMetaDirectAccount(accountId: string): Promise<void> {
+  const { error } = await supabase
+    .from('meta_direct_accounts')
+    .upsert({ account_id: accountId }, { onConflict: 'account_id' })
+  if (error && error.code !== '42P01') throw new Error(error.message)
+}
+
 export async function hideClient(clientName: string, source: string, ctx: WorkspaceCtx): Promise<void> {
   const payload: Record<string, string> = { client_name: clientName, source }
   if (ctx.workspaceId) payload.workspace_id = ctx.workspaceId

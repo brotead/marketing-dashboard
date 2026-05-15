@@ -1,4 +1,4 @@
-import { getMetaDirectIds, fetchMetaAuditRows, fetchMetaCampaignRows } from './meta'
+import { getMetaDirectIdsFull, fetchMetaAuditRows, fetchMetaCampaignRows } from './meta'
 
 const WINDSOR_FACEBOOK = 'https://connectors.windsor.ai/facebook'
 
@@ -111,7 +111,7 @@ async function fetchPeriod(
   fields:      string,
   allowedIds?: Set<string>
 ): Promise<RawRow[]> {
-  const metaDirectIds = getMetaDirectIds()
+  const metaDirectIds = await getMetaDirectIdsFull()
 
   // Determine which accounts should come from Windsor vs Meta API
   const metaIds = allowedIds

@@ -32,7 +32,7 @@ function findMatches(query: string, accounts: AccountData[]): AccountData[] {
 
 const STEPS = [
   'Creando registro cliente',
-  'Buscando coincidencias en Windsor',
+  'Buscando cuentas publicitarias',
   'Vinculando cuenta encontrada',
   'Importando campañas activas',
   'Importando resultados del mes',
@@ -141,6 +141,7 @@ export default function NewClientModal({ onClose, onCreated }: Props) {
   const [name,         setName]         = useState('')
   const [hasMeta,      setHasMeta]      = useState(true)
   const [hasGoogle,    setHasGoogle]    = useState(false)
+  const [metaSource,   setMetaSource]   = useState<'windsor' | 'meta_api'>('windsor')
   const [metaBudget,   setMetaBudget]   = useState('')
   const [googleBudget, setGoogleBudget] = useState('')
 
@@ -203,6 +204,56 @@ export default function NewClientModal({ onClose, onCreated }: Props) {
       const mo = today.getMonth() + 1
 
       await micro(300)
+
+      // ── Meta API direct flow ────────────────────────────────────────────────
+      if (metaSource === 'meta_api' && hasMeta) {
+        go(1, 'Consultando Meta API directa…')
+        const metaRes = await fetch('/api/meta/accounts')
+        if (!metaRes.ok) throw new Error('No se pudo conectar con Meta API')
+        const metaData = await metaRes.json()
+        if (metaData.error) throw new Error(metaData.error)
+        const metaApiAccts: AccountData[] = metaData.accounts ?? []
+
+        let googleAccounts: AccountData[]    = []
+        let googleCampaigns: CampaignSpend[] = []
+
+        if (hasGoogle) {
+          go(1, 'Buscando cuentas Google en Windsor…')
+          const pre = prefetchRef.current
+          if (pre) {
+            googleAccounts  = pre.accounts.filter(a => a.source === 'google')
+            googleCampaigns = pre.campaigns.filter(c => c.source === 'google')
+          } else {
+            const res = await fetch(`/api/windsor?year=${yr}&month=${mo}`)
+            if (res.ok) {
+              const json = await res.json()
+              const all: AccountData[]    = json.data      ?? []
+              const cps: CampaignSpend[]  = json.campaigns ?? []
+              googleAccounts  = all.filter(a => a.source === 'google')
+              googleCampaigns = cps.filter(c => c.source === 'google')
+            }
+          }
+        }
+
+        go(2, 'Seleccioná la cuenta Meta a vincular…')
+        await micro(200)
+
+        const s: Snap = { accounts: [...metaApiAccts, ...googleAccounts], campaigns: googleCampaigns, yr, mo }
+        setSnap(s)
+        setMetaCandidates(metaApiAccts)
+        setGoogleCandidates(googleAccounts)
+        setNeedPickMeta(true)
+        setNeedPickGoogle(hasGoogle)
+        if (hasGoogle) {
+          const gHits = findMatches(trimmed, googleAccounts)
+          if (gHits.length > 0) setPickedGoogle(gHits[0])
+        }
+        setPickedMeta(null)
+        setMetaSearch('')
+        setGoogleSearch('')
+        setPhase('pick')
+        return
+      }
 
       // ── Step 1: Fetch Windsor — use prefetch if ready, else fetch now ───────
       go(1, 'Conectando con Windsor…')
@@ -370,6 +421,15 @@ export default function NewClientModal({ onClose, onCreated }: Props) {
       }
     }
 
+    // Register Meta account as Meta API direct if created via Meta API mode
+    if (metaSource === 'meta_api' && metaAcct) {
+      await fetch('/api/meta/mark-direct', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ account_id: metaAcct.account_id }),
+      }).catch(e => console.error('[MetaDirect]', e))
+    }
+
     // ── Step 4: Verify spend data ─────────────────────────────────────────
     go(4, 'Verificando métricas del mes…')
     const totalSpend = pairs.reduce((sum, [acct, , source]) => {
@@ -456,6 +516,25 @@ export default function NewClientModal({ onClose, onCreated }: Props) {
                 <span className="font-bold">M</span> Meta Ads
                 {hasMeta && <Check size={13} />}
               </button>
+              {hasMeta && (
+                <div className="flex items-center gap-1 col-span-2 mt-1">
+                  <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium mr-1">Fuente:</span>
+                  {(['windsor', 'meta_api'] as const).map(src => (
+                    <button
+                      key={src}
+                      type="button"
+                      onClick={() => setMetaSource(src)}
+                      className={`px-2.5 py-0.5 rounded-lg text-[10px] font-semibold transition-all border ${
+                        metaSource === src
+                          ? 'bg-[#1877F2]/10 border-[#1877F2]/40 text-[#1877F2] dark:text-[#4a9eff]'
+                          : 'bg-white dark:bg-[#1a1a1a] border-gray-200 dark:border-[#2a2a2a] text-gray-400 hover:border-gray-300'
+                      }`}
+                    >
+                      {src === 'windsor' ? 'Windsor' : 'Meta API'}
+                    </button>
+                  ))}
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => { if (hasGoogle && !hasMeta) return; setHasGoogle(v => !v) }}
@@ -503,7 +582,10 @@ export default function NewClientModal({ onClose, onCreated }: Props) {
                 </div>
               )}
               <p className="text-[11px] text-gray-400 dark:text-gray-500 pt-0.5">
-                Se distribuirá automáticamente entre las campañas activas encontradas en Windsor.
+                {metaSource === 'meta_api' && hasMeta
+                ? 'Se registrará la cuenta Meta seleccionada. Las campañas se sincronizan automáticamente.'
+                : 'Se distribuirá automáticamente entre las campañas activas encontradas en Windsor.'
+              }
               </p>
             </div>
           </div>
@@ -591,7 +673,10 @@ export default function NewClientModal({ onClose, onCreated }: Props) {
               <p className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">{createdName}</p>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400 ml-9">
-              Seleccioná las cuentas publicitarias en Windsor
+              {metaSource === 'meta_api' && hasMeta
+                ? 'Seleccioná la cuenta en Meta API'
+                : 'Seleccioná las cuentas publicitarias en Windsor'
+              }
             </p>
           </div>
 
