@@ -368,7 +368,7 @@ export default function NewClientModal({ onClose, onCreated }: Props) {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             campaign_id:   `${src.slice(0, 2)}_${Date.now()}`,
-            campaign_name: acct.account_name,
+            campaign_name: clientName,
             client_name:   clientName,
             source:        src,
             account_id:    acct.account_id,
@@ -388,6 +388,18 @@ export default function NewClientModal({ onClose, onCreated }: Props) {
         body: JSON.stringify({ account_id: metaAcct.account_id }),
       }).catch(e => console.error('[MetaDirect]', e))
     }
+
+    // Unhide accounts that were previously hidden — creating a client is an explicit "show this" action
+    const unhidePromises = pairs
+      .filter(([acct]) => acct !== null)
+      .map(([acct, , src]) =>
+        fetch('/api/campaign-overrides/unhide-account', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ account_id: acct!.account_id, source: src }),
+        }).catch(() => {})
+      )
+    await Promise.all(unhidePromises)
 
     // ── Step 4: Verify spend data ─────────────────────────────────────────
     go(4, 'Verificando métricas del mes…')
