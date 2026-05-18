@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { RefreshCw, Plus, Pencil, AlertTriangle, Clock, Trash2, X, Sparkles } from 'lucide-react'
+import { RefreshCw, Plus, Pencil, AlertTriangle, Clock, Trash2, X, Sparkles, Download } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import CampaignRow from '@/components/CampaignRow'
 import dynamic from 'next/dynamic'
@@ -447,6 +447,8 @@ export default function CashflowPage() {
   const [totalInput, setTotalInput] = useState('')
   const [countdown, setCountdown] = useState(3600)
   const [carryoverInfo, setCarryoverInfo] = useState<{ count: number; fromMonth: number } | null>(null)
+  const [exportLoading, setExportLoading] = useState(false)
+  const [exportSuccess, setExportSuccess] = useState(false)
 
   const fetchData = useCallback(async (force = false) => {
     if (force) {
@@ -890,6 +892,56 @@ export default function CashflowPage() {
   const metaClients   = useMemo(() => getClients('facebook'), [monthBudgets]) // eslint-disable-line react-hooks/exhaustive-deps
   const googleClients = useMemo(() => getClients('google'),   [monthBudgets]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  function exportCSV() {
+    if (!selected || allCampaigns.length === 0) return
+    setExportLoading(true)
+    try {
+      const platform    = selected.source === 'facebook' ? 'Meta Ads' : 'Google Ads'
+      const platformSlug = selected.source === 'facebook' ? 'meta' : 'google'
+      const clientSlug  = selected.client.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
+      const dateStr     = `${year}_${String(month).padStart(2, '0')}`
+      const exportDate  = new Date().toLocaleDateString('es-AR')
+
+      const header = ['Campaña', 'Plataforma', 'Presupuesto (ARS)', 'Gastado (ARS)', 'Restante (ARS)', '% Gastado', '% Esperado', 'Desvío', 'Estado', 'Fecha exportación'].join(',')
+
+      const rows = allCampaigns.map(b => {
+        const spend     = campaignSpend(b, monthBudgets, accounts, windsorCampaigns, windsorAdsets)
+        const remaining = b.budget_total - spend
+        const pctConsumed = b.budget_total > 0 ? (spend / b.budget_total) * 100 : 0
+        const deviation   = pctConsumed - pctExpected
+        const status      = b.paused ? 'Pausada' : 'Activa'
+        return [
+          `"${b.campaign_name.replace(/"/g, '""')}"`,
+          platform,
+          b.budget_total.toFixed(2),
+          spend.toFixed(2),
+          remaining.toFixed(2),
+          `${pctConsumed.toFixed(1)}%`,
+          `${pctExpected.toFixed(1)}%`,
+          `${deviation >= 0 ? '+' : ''}${deviation.toFixed(1)}%`,
+          status,
+          exportDate,
+        ].join(',')
+      })
+
+      const csv  = [header, ...rows].join('\n')
+      const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = `cashflow_${platformSlug}_${clientSlug}_${dateStr}.csv`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      setExportSuccess(true)
+      setTimeout(() => setExportSuccess(false), 3000)
+    } finally {
+      setExportLoading(false)
+    }
+  }
+
   function ClientList({ source, clients, color }: { source: Source; clients: string[]; color: string }) {
     return (
       <div className="space-y-0.5">
@@ -1184,6 +1236,27 @@ export default function CashflowPage() {
                     </p>
                     <p className="text-xs text-blue-600/60 dark:text-blue-400/60 mt-1.5">{daysInMonth - daysPassed + 1}d restantes</p>
                   </div>
+                </div>
+              )}
+
+              {/* Export CSV — prominent CTA */}
+              {allCampaigns.length > 0 && (
+                <div className="flex items-center justify-between gap-3 mb-5">
+                  <p className="text-xs text-gray-400 dark:text-gray-500">
+                    {allCampaigns.length} campaña{allCampaigns.length !== 1 ? 's' : ''} · {MONTHS[month - 1]} {year}
+                  </p>
+                  <button
+                    onClick={exportCSV}
+                    disabled={exportLoading}
+                    className={`flex items-center gap-2.5 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-sm disabled:opacity-60 ${
+                      exportSuccess
+                        ? 'bg-emerald-500 text-white shadow-emerald-500/20'
+                        : 'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white shadow-emerald-500/20'
+                    }`}
+                  >
+                    <Download size={15} className={exportLoading ? 'animate-bounce' : ''} />
+                    {exportLoading ? 'Generando CSV...' : exportSuccess ? '¡Descargado!' : 'Exportar reporte mensual'}
+                  </button>
                 </div>
               )}
 

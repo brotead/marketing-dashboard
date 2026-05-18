@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getWorkspaceCtx } from '@/lib/workspace'
+import { getBudgets, getHiddenClients } from '@/lib/storage'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,9 +14,26 @@ export async function GET(req: NextRequest) {
   const userId = req.nextUrl.searchParams.get('userId')
 
   if (!userId) {
-    // Return all unique client names — no workspace filter so legacy rows (workspace_id=null) are included
-    const { data } = await supabase.from('budgets').select('client_name')
-    const clients = [...new Set((data ?? []).map((b: { client_name: string }) => b.client_name))].sort()
+    // Return only clients visible in the admin's dashboard for the current month.
+    // Exact same source of truth: current-month budget entries minus hidden_clients.
+    const now = new Date()
+    const year  = now.getFullYear()
+    const month = now.getMonth() + 1
+
+    const [data, hidden] = await Promise.all([
+      getBudgets(ctx),
+      getHiddenClients(ctx),
+    ])
+
+    const hiddenSet = new Set(hidden.map(h => h.client_name))
+    const clients = [
+      ...new Set(
+        data
+          .filter(b => b.year === year && b.month === month && !hiddenSet.has(b.client_name))
+          .map(b => b.client_name)
+      ),
+    ].sort()
+
     return NextResponse.json({ clients })
   }
 
