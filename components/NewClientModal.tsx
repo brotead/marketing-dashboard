@@ -389,16 +389,21 @@ export default function NewClientModal({ onClose, onCreated }: Props) {
       }).catch(e => console.error('[MetaDirect]', e))
     }
 
-    // Unhide accounts that were previously hidden — creating a client is an explicit "show this" action
+    // Unhide accounts/clients that were previously hidden — creating a client is an explicit "show this" action
     const unhidePromises = pairs
       .filter(([acct]) => acct !== null)
-      .map(([acct, , src]) =>
+      .flatMap(([acct, , src]) => [
         fetch('/api/campaign-overrides/unhide-account', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ account_id: acct!.account_id, source: src }),
-        }).catch(() => {})
-      )
+        }).catch(() => {}),
+        fetch('/api/hidden-clients', {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ client_name: clientName, source: src }),
+        }).catch(() => {}),
+      ])
     await Promise.all(unhidePromises)
 
     // ── Step 4: Verify spend data ─────────────────────────────────────────
@@ -409,8 +414,12 @@ export default function NewClientModal({ onClose, onCreated }: Props) {
     }, 0)
     await micro(400)
 
-    // ── Step 5: Internal modules activated ───────────────────────────────
+    // ── Step 5: Sync Meta campaigns if any account is Meta-direct ────────
     go(5, 'Activando Dashboard · Cashflow · Objetivos…')
+    const hasMetaDirect = metaAcct && metaDirectIdsRef.current.has(metaAcct.account_id)
+    if (hasMetaDirect) {
+      fetch('/api/meta/sync-campaigns', { method: 'POST' }).catch(() => {})
+    }
     await micro(500)
 
     // ── Step 6: Done ─────────────────────────────────────────────────────
