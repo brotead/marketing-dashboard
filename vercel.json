@@ -1,8 +1,0 @@
-{
-  "crons": [
-    {
-      "path": "/api/meta/sync-campaigns",
-      "schedule": "0 * * * *"
-    }
-  ]
-}
