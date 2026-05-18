@@ -13,10 +13,8 @@ export async function GET(req: NextRequest) {
   const userId = req.nextUrl.searchParams.get('userId')
 
   if (!userId) {
-    // Return all unique client names across the workspace
-    let query = supabase.from('budgets').select('client_name')
-    if (ctx.workspaceId) query = query.eq('workspace_id', ctx.workspaceId)
-    const { data } = await query
+    // Return all unique client names — no workspace filter so legacy rows (workspace_id=null) are included
+    const { data } = await supabase.from('budgets').select('client_name')
     const clients = [...new Set((data ?? []).map((b: { client_name: string }) => b.client_name))].sort()
     return NextResponse.json({ clients })
   }

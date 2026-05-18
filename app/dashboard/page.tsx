@@ -120,6 +120,34 @@ export default function DashboardPage() {
     return () => clearInterval(id)
   }, [fetchData])
 
+  // Hourly Meta campaign sync — auto-creates budget entries for new Meta campaigns
+  useEffect(() => {
+    const SYNC_KEY = 'meta_sync_last_run'
+    const ONE_HOUR = 60 * 60 * 1000
+
+    async function runSync() {
+      try {
+        const res = await fetch('/api/meta/sync-campaigns', { method: 'POST' })
+        if (!res.ok) return
+        const data = await res.json()
+        localStorage.setItem(SYNC_KEY, String(Date.now()))
+        if ((data.synced?.new ?? 0) > 0) {
+          fetchData(true)
+        }
+      } catch { /* non-critical background task */ }
+    }
+
+    const lastSync = parseInt(localStorage.getItem(SYNC_KEY) ?? '0')
+    if (Date.now() - lastSync > ONE_HOUR) runSync()
+
+    const id = setInterval(() => {
+      const last = parseInt(localStorage.getItem(SYNC_KEY) ?? '0')
+      if (Date.now() - last > ONE_HOUR) runSync()
+    }, 5 * 60 * 1000)
+
+    return () => clearInterval(id)
+  }, [fetchData])
+
   const monthBudgets = budgets.filter((b) => b.year === year && b.month === month)
 
   const daysInMonth = new Date(year, month, 0).getDate()

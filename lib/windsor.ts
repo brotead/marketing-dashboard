@@ -1,5 +1,5 @@
 import type { AccountData, CampaignSpend, AdCreative, FatigueAd, FatigueSignal } from './types'
-import { getMetaDirectIdsFull, fetchMetaMonthlyAccounts } from './meta'
+import { getMetaDirectIdsFull, fetchMetaMonthlyAccounts, fetchMetaCampaignSpend } from './meta'
 
 const WINDSOR_FACEBOOK  = 'https://connectors.windsor.ai/facebook'
 const WINDSOR_GOOGLE    = 'https://connectors.windsor.ai/google_ads'
@@ -624,14 +624,20 @@ export async function fetchWindsorAccounts(
   const metaDirectIds = await getMetaDirectIdsFull()
   const existingIds = new Set(meta.accounts.map(a => a.account_id))
   const missingMetaDirect = Array.from(metaDirectIds).filter(id => !existingIds.has(id))
-  const metaDirectAccounts = await fetchMetaMonthlyAccounts(year, month, missingMetaDirect).catch(e => {
-    console.error('[Meta] fetchMetaMonthlyAccounts error:', e)
-    return [] as AccountData[]
-  })
+  const [metaDirectAccounts, metaDirectCampaigns] = await Promise.all([
+    fetchMetaMonthlyAccounts(year, month, missingMetaDirect).catch(e => {
+      console.error('[Meta] fetchMetaMonthlyAccounts error:', e)
+      return [] as AccountData[]
+    }),
+    fetchMetaCampaignSpend(year, month, missingMetaDirect).catch(e => {
+      console.error('[Meta] fetchMetaCampaignSpend error:', e)
+      return [] as CampaignSpend[]
+    }),
+  ])
 
   const result: WindsorCached = {
     accounts:  [...meta.accounts, ...metaDirectAccounts, ...google.accounts],
-    campaigns: [...meta.campaigns, ...google.campaigns],
+    campaigns: [...meta.campaigns, ...metaDirectCampaigns, ...google.campaigns],
     adsets:    [...meta.adsets,    ...google.adsets],
   }
   _windsorCache.set(key, { data: result, ts: Date.now() })

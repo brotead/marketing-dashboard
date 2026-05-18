@@ -1,4 +1,4 @@
-import type { AccountData } from './types'
+import type { AccountData, CampaignSpend } from './types'
 import { supabase } from './supabase'
 
 const META_BASE = 'https://graph.facebook.com/v21.0'
@@ -202,6 +202,66 @@ export async function fetchMetaCampaignRows(
     'campaign',
   )
   return rows.map(metaRowToAuditRow)
+}
+
+// Campaign metadata (id, name, status) for all campaigns in an account — includes $0-spend campaigns
+export interface MetaCampaignInfo {
+  id: string
+  name: string
+  status: string
+  effective_status: string
+  account_id: string
+}
+
+export async function fetchMetaCampaignList(accountIds: string[]): Promise<MetaCampaignInfo[]> {
+  const token = process.env.META_ACCESS_TOKEN
+  if (!token || accountIds.length === 0) return []
+  const results: MetaCampaignInfo[] = []
+  await Promise.all(accountIds.map(async (id) => {
+    try {
+      const url = new URL(`${META_BASE}/act_${id}/campaigns`)
+      url.searchParams.set('access_token', token)
+      url.searchParams.set('fields', 'id,name,status,effective_status')
+      url.searchParams.set('limit', '500')
+      const res = await fetch(url.toString(), { cache: 'no-store' })
+      if (!res.ok) { console.error(`[Meta campaigns] act_${id}: ${res.status}`); return }
+      const json = await res.json()
+      for (const c of (json.data ?? [])) {
+        results.push({ id: c.id, name: c.name, status: c.status, effective_status: c.effective_status, account_id: id })
+      }
+    } catch (e) {
+      console.error(`[Meta campaigns] act_${id}:`, e)
+    }
+  }))
+  return results
+}
+
+// Campaign-level spend as CampaignSpend[] — used by Windsor route to fill in Meta-direct campaign data
+export async function fetchMetaCampaignSpend(
+  year: number,
+  month: number,
+  accountIds: string[],
+): Promise<CampaignSpend[]> {
+  if (accountIds.length === 0) return []
+  const dateFrom = `${year}-${String(month).padStart(2, '0')}-01`
+  const today = new Date()
+  const isCurrentMonth = year === today.getFullYear() && month === today.getMonth() + 1
+  const dateTo = isCurrentMonth
+    ? new Date(today.getTime() - 86_400_000).toISOString().split('T')[0]
+    : new Date(year, month, 0).toISOString().split('T')[0]
+  const rows = await fetchMetaInsights(
+    accountIds, dateFrom, dateTo,
+    'account_id,campaign_name,spend',
+    'campaign',
+  )
+  return rows
+    .filter(r => r.account_id && r.campaign_name)
+    .map(r => ({
+      account_id:    r.account_id!,
+      source:        'facebook' as const,
+      campaign_name: r.campaign_name!,
+      spend:         parseFloat(r.spend ?? '0'),
+    }))
 }
 
 export interface MetaDayRow {
