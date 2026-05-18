@@ -422,7 +422,7 @@ export default function CashflowPage() {
   const _initMonth = _today.getMonth() + 1
 
   const today = _today
-  const { canEdit, isAdmin } = useAuth()
+  const { canEdit, isAdmin, profile } = useAuth()
   const [year, setYear] = useState(_initYear)
   const [month, setMonth] = useState(_initMonth)
   const [accounts, setAccounts] = useState<AccountData[]>(() =>
@@ -892,44 +892,51 @@ export default function CashflowPage() {
   const metaClients   = useMemo(() => getClients('facebook'), [monthBudgets]) // eslint-disable-line react-hooks/exhaustive-deps
   const googleClients = useMemo(() => getClients('google'),   [monthBudgets]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  function exportCSV() {
+  async function exportExcel() {
     if (!selected || allCampaigns.length === 0) return
     setExportLoading(true)
     try {
-      const platform    = selected.source === 'facebook' ? 'Meta Ads' : 'Google Ads'
-      const platformSlug = selected.source === 'facebook' ? 'meta' : 'google'
-      const clientSlug  = selected.client.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
-      const dateStr     = `${year}_${String(month).padStart(2, '0')}`
-      const exportDate  = new Date().toLocaleDateString('es-AR')
-
-      const header = ['Campaña', 'Plataforma', 'Presupuesto (ARS)', 'Gastado (ARS)', 'Restante (ARS)', '% Gastado', '% Esperado', 'Desvío', 'Estado', 'Fecha exportación'].join(',')
-
-      const rows = allCampaigns.map(b => {
-        const spend     = campaignSpend(b, monthBudgets, accounts, windsorCampaigns, windsorAdsets)
-        const remaining = b.budget_total - spend
+      const campaignRows = allCampaigns.map(b => {
+        const spend       = campaignSpend(b, monthBudgets, accounts, windsorCampaigns, windsorAdsets)
         const pctConsumed = b.budget_total > 0 ? (spend / b.budget_total) * 100 : 0
         const deviation   = pctConsumed - pctExpected
-        const status      = b.paused ? 'Pausada' : 'Activa'
-        return [
-          `"${b.campaign_name.replace(/"/g, '""')}"`,
-          platform,
-          b.budget_total.toFixed(2),
-          spend.toFixed(2),
-          remaining.toFixed(2),
-          `${pctConsumed.toFixed(1)}%`,
-          `${pctExpected.toFixed(1)}%`,
-          `${deviation >= 0 ? '+' : ''}${deviation.toFixed(1)}%`,
-          status,
-          exportDate,
-        ].join(',')
+        return {
+          name:      b.campaign_name,
+          budget:    b.budget_total,
+          spend,
+          deviation,
+          status:    (b.paused ? 'Pausada' : 'Activa') as 'Activa' | 'Pausada',
+        }
       })
 
-      const csv  = [header, ...rows].join('\n')
-      const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
-      const url  = URL.createObjectURL(blob)
-      const a    = document.createElement('a')
-      a.href     = url
-      a.download = `cashflow_${platformSlug}_${clientSlug}_${dateStr}.csv`
+      const totalBudget = allCampaigns.reduce((s, b) => s + b.budget_total, 0)
+      const totalSpend  = campaignRows.reduce((s, r) => s + r.spend, 0)
+
+      const res = await fetch('/api/cashflow/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client:      selected.client,
+          source:      selected.source,
+          month,
+          year,
+          pctExpected,
+          userName:    profile?.email ?? 'Administrador',
+          campaigns:   campaignRows,
+          totalBudget,
+          totalSpend,
+        }),
+      })
+
+      if (!res.ok) throw new Error('Error generando el Excel')
+
+      const blob     = await res.blob()
+      const url      = URL.createObjectURL(blob)
+      const a        = document.createElement('a')
+      const cd       = res.headers.get('Content-Disposition') ?? ''
+      const match    = cd.match(/filename="([^"]+)"/)
+      a.download     = match?.[1] ?? `cashflow_${selected.client}_${month}_${year}.xlsx`
+      a.href         = url
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -937,6 +944,8 @@ export default function CashflowPage() {
 
       setExportSuccess(true)
       setTimeout(() => setExportSuccess(false), 3000)
+    } catch {
+      // silently fail — user will notice no download happened
     } finally {
       setExportLoading(false)
     }
@@ -1246,7 +1255,7 @@ export default function CashflowPage() {
                     {allCampaigns.length} campaña{allCampaigns.length !== 1 ? 's' : ''} · {MONTHS[month - 1]} {year}
                   </p>
                   <button
-                    onClick={exportCSV}
+                    onClick={exportExcel}
                     disabled={exportLoading}
                     className={`flex items-center gap-2.5 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-sm disabled:opacity-60 ${
                       exportSuccess
@@ -1255,7 +1264,7 @@ export default function CashflowPage() {
                     }`}
                   >
                     <Download size={15} className={exportLoading ? 'animate-bounce' : ''} />
-                    {exportLoading ? 'Generando CSV...' : exportSuccess ? '¡Descargado!' : 'Exportar reporte mensual'}
+                    {exportLoading ? 'Generando Excel...' : exportSuccess ? '¡Descargado!' : 'Exportar Excel'}
                   </button>
                 </div>
               )}
