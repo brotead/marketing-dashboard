@@ -42,7 +42,7 @@ export async function GET() {
 
   const [budgetRes, hiddenRes, overridesRes] = await Promise.all([
     supabase.from('budgets')
-      .select('campaign_id, client_name, source, account_id, year, month, budget_total, paused')
+      .select('campaign_id, campaign_name, client_name, source, account_id, year, month, budget_total, paused')
       .order('campaign_id', { ascending: false })
       .limit(200),
     supabase.from('hidden_clients').select('client_name, source'),
