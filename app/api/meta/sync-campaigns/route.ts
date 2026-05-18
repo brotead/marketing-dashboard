@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { fetchMetaCampaignList, getMetaDirectIdsFull } from '@/lib/meta'
 
@@ -7,7 +7,7 @@ export const maxDuration = 60
 
 const INACTIVE = new Set(['PAUSED', 'ARCHIVED', 'DELETED'])
 
-export async function POST() {
+async function runSync() {
   if (!process.env.META_ACCESS_TOKEN) {
     return NextResponse.json({ error: 'META_ACCESS_TOKEN not set' }, { status: 500 })
   }
@@ -139,4 +139,19 @@ export async function POST() {
 
   log.push(`[Sync] Done — new: ${newCount}, updated: ${updatedCount}, paused: ${pausedCount}`)
   return NextResponse.json({ ok: true, synced: { new: newCount, updated: updatedCount, paused: pausedCount }, log })
+}
+
+// GET — called by Vercel Cron every hour. Protected by CRON_SECRET.
+export async function GET(req: NextRequest) {
+  const secret = process.env.CRON_SECRET
+  const auth   = req.headers.get('authorization')
+  if (!secret || auth !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  return runSync()
+}
+
+// POST — called manually from the dashboard client (no secret needed, auth via session)
+export async function POST() {
+  return runSync()
 }
