@@ -1,18 +1,15 @@
 export type DeviationStatus = 'green' | 'orange' | 'red'
 
 // SINGLE SOURCE OF TRUTH — exact rules, no interpretation:
-// GREEN:  abs <= 4
-// ORANGE: abs >= 5 AND abs <= 9   (i.e. 4 < abs < 10)
+// GREEN:  abs <= 5
+// ORANGE: abs > 5 AND abs < 10
 // RED:    abs >= 10
 export function getDeviationStatus(deviation: number | null): DeviationStatus | null {
   if (deviation === null) return null
   const abs = Math.abs(deviation)
-  let status: DeviationStatus
-  if (abs <= 4) status = 'green'
-  else if (abs < 10) status = 'orange'
-  else status = 'red'
-  console.log('[deviation]', { deviation: deviation.toFixed(2), abs: abs.toFixed(2), status })
-  return status
+  if (abs <= 5)  return 'green'
+  if (abs < 10)  return 'orange'
+  return 'red'
 }
 
 export interface DeviationClasses {

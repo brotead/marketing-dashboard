@@ -390,7 +390,9 @@ function buildAuditItem(recent: Metrics, prev: Metrics | null, clientType: Clien
   const effectiveResults = clientType === 'messaging'
     ? recent.messaging
     : (recent.results > 0 ? recent.results : recent.ig_visits)
-  const hasCpl = effectiveResults > 0
+  // has_cpl gates CPA alerts — only true when the client has real conversions of their type.
+  // ig/traffic clients with only ig_visits do NOT qualify: ig_visits ≠ a cost-per-acquisition metric.
+  const hasCpl = clientType === 'messaging' ? recent.messaging > 0 : recent.results > 0
   const cpl_r  = hasCpl ? recent.spend / effectiveResults : 0
 
   // Pick conversions based on client type

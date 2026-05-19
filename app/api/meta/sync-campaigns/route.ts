@@ -71,9 +71,10 @@ async function runSync() {
       continue
     }
 
-    // Placeholder entries for this account this month (campaign_id does NOT start with meta_)
+    // Placeholder entries: only the generic __auto__ sentinel created on client setup.
+    // Never touch manually-added campaigns or campaigns with other ID formats.
     const placeholders = currentMonth.filter(
-      b => b.account_id === accountId && !b.campaign_id.startsWith('meta_')
+      b => b.account_id === accountId && (b.campaign_id === '__auto__' || b.campaign_id.startsWith('__'))
     )
 
     for (const campaign of accountCampaigns) {
