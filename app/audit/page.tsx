@@ -415,6 +415,7 @@ export default function AuditPage() {
                 <Zap size={14} className="text-white" />
               </div>
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">AD Health Auditor</h1>
+              <span className="text-sm font-semibold text-gray-400 dark:text-gray-500 tracking-wide">Solo Meta Ads</span>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-500 ml-[42px]">
               Últimos 7 días vs 7 días anteriores · Solo Meta Ads · {updatedAt}
