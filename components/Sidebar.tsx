@@ -175,7 +175,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-2xl bg-[#111111] border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden">
+      <div className="relative w-full max-w-3xl bg-[#111111] border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06]">
           <div className="flex items-center gap-2.5">
@@ -196,7 +196,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* Cards grid */}
-        <div className="p-5 grid grid-cols-2 gap-3 max-h-[70vh] overflow-y-auto">
+        <div className="p-5 grid grid-cols-2 gap-3 max-h-[85vh] overflow-y-auto">
           {HELP_CARDS.map(({ icon: Icon, title, color, content, wide }) => (
             <div
               key={title}
