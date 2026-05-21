@@ -1,5 +1,4 @@
 import type { AccountData, CampaignSpend, AdCreative, FatigueAd, FatigueSignal } from './types'
-import { getMetaDirectIdsFull, fetchMetaMonthlyAccounts, fetchMetaCampaignSpend } from './meta'
 
 const WINDSOR_FACEBOOK  = 'https://connectors.windsor.ai/facebook'
 const WINDSOR_GOOGLE    = 'https://connectors.windsor.ai/google_ads'
@@ -620,24 +619,12 @@ export async function fetchWindsorAccounts(
     }
   }
 
-  // Merge Meta-direct accounts (fetched from Meta API instead of Windsor)
-  const metaDirectIds = await getMetaDirectIdsFull()
-  const existingIds = new Set(meta.accounts.map(a => a.account_id))
-  const missingMetaDirect = Array.from(metaDirectIds).filter(id => !existingIds.has(id))
-  const [metaDirectAccounts, metaDirectCampaigns] = await Promise.all([
-    fetchMetaMonthlyAccounts(year, month, missingMetaDirect).catch(e => {
-      console.error('[Meta] fetchMetaMonthlyAccounts error:', e)
-      return [] as AccountData[]
-    }),
-    fetchMetaCampaignSpend(year, month, missingMetaDirect).catch(e => {
-      console.error('[Meta] fetchMetaCampaignSpend error:', e)
-      return [] as CampaignSpend[]
-    }),
-  ])
+  // Meta-direct API deshabilitado — todas las cuentas pasan por Windsor.
+  // Para reactivar: restaurar el bloque "Merge Meta-direct accounts" y sus imports.
 
   const result: WindsorCached = {
-    accounts:  [...meta.accounts, ...metaDirectAccounts, ...google.accounts],
-    campaigns: [...meta.campaigns, ...metaDirectCampaigns, ...google.campaigns],
+    accounts:  [...meta.accounts, ...google.accounts],
+    campaigns: [...meta.campaigns, ...google.campaigns],
     adsets:    [...meta.adsets,    ...google.adsets],
   }
   _windsorCache.set(key, { data: result, ts: Date.now() })
