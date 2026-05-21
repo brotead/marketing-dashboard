@@ -7,6 +7,13 @@ export const maxDuration = 60
 
 const INACTIVE = new Set(['PAUSED', 'ARCHIVED', 'DELETED'])
 
+function normName(s: string): string {
+  return s.toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[|\-_]+/g, ' ')
+    .replace(/\s+/g, ' ').trim()
+}
+
 async function runSync() {
   if (!process.env.META_ACCESS_TOKEN) {
     return NextResponse.json({ error: 'META_ACCESS_TOKEN not set' }, { status: 500 })
@@ -29,7 +36,7 @@ async function runSync() {
   // 2. Load existing budgets for these accounts to find client_name + current-month state
   const { data: allBudgets, error: budgetErr } = await supabase
     .from('budgets')
-    .select('campaign_id, campaign_name, client_name, account_id, year, month, paused')
+    .select('campaign_id, campaign_name, client_name, account_id, year, month, paused, workspace_id')
     .in('account_id', accountIds)
     .eq('source', 'facebook')
   if (budgetErr) return NextResponse.json({ error: budgetErr.message }, { status: 500 })
@@ -44,10 +51,25 @@ async function runSync() {
     }
   }
 
-  // Current-month budget entries keyed by campaign_id
+  // Current-month budget entries keyed by campaign_id and by normalized name
   const currentMonth = budgets.filter(b => b.year === year && b.month === month)
   const byKey: Record<string, typeof budgets[0]> = {}
-  for (const b of currentMonth) byKey[b.campaign_id] = b
+  // account_id|normName → all matching entries (catches fa_, auto_, manual IDs)
+  const byName: Record<string, typeof budgets> = {}
+  for (const b of currentMonth) {
+    byKey[b.campaign_id] = b
+    const nameKey = `${b.account_id}|${normName(b.campaign_name)}`
+    byName[nameKey] = byName[nameKey] ?? []
+    byName[nameKey].push(b)
+  }
+
+  // workspace used per account (for inserting new campaigns in the right workspace)
+  const workspaceByAccount: Record<string, string | null> = {}
+  for (const b of budgets) {
+    if (b.workspace_id && !workspaceByAccount[b.account_id]) {
+      workspaceByAccount[b.account_id] = b.workspace_id
+    }
+  }
 
   // 3. Fetch campaign list from Meta API
   const campaigns = await fetchMetaCampaignList(accountIds)
@@ -80,6 +102,7 @@ async function runSync() {
     for (const campaign of accountCampaigns) {
       const campaignId = `meta_${campaign.id}`
       const isActive = !INACTIVE.has(campaign.effective_status)
+      const shouldPause = !isActive
       const existing = byKey[campaignId]
 
       if (!existing) {
@@ -94,6 +117,7 @@ async function runSync() {
             month,
             budget_total:  0,
             paused:        false,
+            workspace_id:  workspaceByAccount[accountId] ?? null,
           })
           if (!error) {
             newCount++
@@ -103,7 +127,6 @@ async function runSync() {
           }
         }
       } else {
-        const shouldPause = !isActive
         if (!!existing.paused !== shouldPause) {
           await supabase.from('budgets')
             .update({ paused: shouldPause, campaign_name: campaign.name })
@@ -116,6 +139,27 @@ async function runSync() {
             log.push(`[Sync] PAUSED: "${campaign.name}" (${campaignId})`)
           } else {
             log.push(`[Sync] RESUMED: "${campaign.name}" (${campaignId})`)
+          }
+        }
+      }
+
+      // Also sync paused state to any name-matched entries (fa_, auto_, or manual IDs)
+      // that represent the same Meta campaign but were created outside the sync flow.
+      const nameKey = `${accountId}|${normName(campaign.name)}`
+      const nameMatches = (byName[nameKey] ?? []).filter(b => b.campaign_id !== campaignId)
+      for (const match of nameMatches) {
+        if (!!match.paused !== shouldPause) {
+          await supabase.from('budgets')
+            .update({ paused: shouldPause })
+            .eq('campaign_id', match.campaign_id)
+            .eq('year', year)
+            .eq('month', month)
+          updatedCount++
+          if (shouldPause) {
+            pausedCount++
+            log.push(`[Sync] PAUSED (name-match): "${campaign.name}" (${match.campaign_id})`)
+          } else {
+            log.push(`[Sync] RESUMED (name-match): "${campaign.name}" (${match.campaign_id})`)
           }
         }
       }
