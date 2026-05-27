@@ -7,7 +7,7 @@ import CampaignRow from '@/components/CampaignRow'
 import dynamic from 'next/dynamic'
 const CampaignFormModal = dynamic(() => import('@/components/CampaignFormModal'), { ssr: false })
 import type { AccountData, BudgetEntry, CampaignSpend } from '@/lib/types'
-import { calcCashflow } from '@/lib/calculations'
+import { calcCashflow, deduplicateBudgets, normName } from '@/lib/calculations'
 import { getDeviationStatus, deviationDotClass } from '@/lib/deviationColor'
 import { appCache, TTL } from '@/lib/appCache'
 
@@ -40,14 +40,6 @@ function formatCountdown(s: number) {
   const m = Math.floor(s / 60)
   const sec = s % 60
   return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
-}
-
-// Normalize campaign name for fuzzy matching (remove accents, lowercase, unify separators)
-function normName(s: string): string {
-  return s.toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[|\-_]+/g, ' ')
-    .replace(/\s+/g, ' ').trim()
 }
 
 function fuzzyMatch(a: string, b: string): boolean {
@@ -105,28 +97,6 @@ async function resolvePendingClients(
     })),
   ])
   return { added: toAdd, removedIds }
-}
-
-// Deduplicate budget entries by normalized campaign name within the same account+source.
-// Prefers manually-created entries (non-auto_ IDs) and higher budget_total when colliding.
-function deduplicateBudgets(entries: BudgetEntry[]): BudgetEntry[] {
-  const seen = new Map<string, BudgetEntry>()
-  for (const b of entries) {
-    const key = `${b.account_id}|${b.source}|${normName(b.campaign_name)}`
-    const existing = seen.get(key)
-    if (!existing) {
-      seen.set(key, b)
-    } else {
-      const bIsAuto       = b.campaign_id.startsWith('auto_')
-      const existingIsAuto = existing.campaign_id.startsWith('auto_')
-      if (!bIsAuto && existingIsAuto) {
-        seen.set(key, b) // prefer manually-created entry
-      } else if (bIsAuto === existingIsAuto && b.budget_total > existing.budget_total) {
-        seen.set(key, b) // prefer entry with higher budget set
-      }
-    }
-  }
-  return Array.from(seen.values())
 }
 
 function tryMatchAll(

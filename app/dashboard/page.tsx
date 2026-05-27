@@ -12,6 +12,7 @@ import type { OnboardingClient } from '@/lib/onboarding'
 import type { AuditData, ClientAudit } from '@/lib/audit'
 import { useAuth } from '@/contexts/AuthContext'
 import { appCache, TTL } from '@/lib/appCache'
+import { deduplicateBudgets } from '@/lib/calculations'
 
 function countIncomplete(clients: OnboardingClient[]): number {
   return clients.filter(c => {
@@ -228,7 +229,7 @@ export default function DashboardPage() {
   }, [monthBudgets, router])
 
   const renderCard = useCallback((client: string) => {
-    const clientBudgets   = monthBudgets.filter(b => b.client_name === client)
+    const clientBudgets   = deduplicateBudgets(monthBudgets.filter(b => b.client_name === client))
     const metaAccountId   = clientBudgets.find(b => b.source === 'facebook')?.account_id
     const googleAccountId = clientBudgets.find(b => b.source === 'google')?.account_id
     const metaAccount     = accounts.find(a => a.account_id === metaAccountId && a.source === 'facebook')

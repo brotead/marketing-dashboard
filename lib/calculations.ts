@@ -1,6 +1,35 @@
-import type { CashflowResult, PacingResult } from './types'
+import type { BudgetEntry, CashflowResult, PacingResult } from './types'
 
 export type { CashflowResult, PacingResult }
+
+export function normName(s: string): string {
+  return s.toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[|\-_]+/g, ' ')
+    .replace(/\s+/g, ' ').trim()
+}
+
+/** Deduplica entries por account+source+nombre normalizado.
+ *  Prioriza entradas creadas manualmente (no auto_) y mayor budget_total. */
+export function deduplicateBudgets(entries: BudgetEntry[]): BudgetEntry[] {
+  const seen = new Map<string, BudgetEntry>()
+  for (const b of entries) {
+    const key = `${b.account_id}|${b.source}|${normName(b.campaign_name)}`
+    const existing = seen.get(key)
+    if (!existing) {
+      seen.set(key, b)
+    } else {
+      const bIsAuto        = b.campaign_id.startsWith('auto_')
+      const existingIsAuto = existing.campaign_id.startsWith('auto_')
+      if (!bIsAuto && existingIsAuto) {
+        seen.set(key, b)
+      } else if (bIsAuto === existingIsAuto && b.budget_total > existing.budget_total) {
+        seen.set(key, b)
+      }
+    }
+  }
+  return Array.from(seen.values())
+}
 
 function getMonthInfo(year: number, month: number) {
   const today = new Date()
