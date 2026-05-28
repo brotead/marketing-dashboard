@@ -67,6 +67,7 @@ async function fetchAccounts(
     : 'campaign_id,campaign_name,account_id,account_name,source,spend,date'
   url.searchParams.set('fields', fields)
   url.searchParams.set('_renderer', 'json')
+  url.searchParams.set('_limit', '50000')
 
   const res = await fetch(url.toString(), { cache: 'no-store' })
   if (!res.ok) throw new Error(`Windsor error ${res.status}`)
@@ -555,19 +556,20 @@ async function discoverAllAccounts(
   url.searchParams.set('api_key', apiKey)
   url.searchParams.set('date_from', from.toISOString().split('T')[0])
   url.searchParams.set('date_to', today.toISOString().split('T')[0])
-  url.searchParams.set('fields', 'account_id,account_name,source,spend')
+  url.searchParams.set('fields', 'account_id,account_name,source')
   url.searchParams.set('_renderer', 'json')
+  url.searchParams.set('_limit', '50000')
 
   try {
     const res = await fetch(url.toString(), { cache: 'no-store' })
     if (!res.ok) return new Map()
     const json = await res.json()
     const map = new Map<string, { account_id: string; account_name: string }>()
-    for (const r of (json.data ?? []) as RawRecord[]) {
+    for (const r of (json.data ?? []) as { account_id?: string; account_name?: string; source?: string }[]) {
       if (r.source !== sourceLabel || !r.account_id || map.has(r.account_id)) continue
       map.set(r.account_id, {
         account_id:   r.account_id,
-        account_name: r.account_name ?? r.account_id,
+        account_name: r.account_name ?? r.account_id ?? '',
       })
     }
     return map
