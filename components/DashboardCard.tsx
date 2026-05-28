@@ -1,6 +1,7 @@
 'use client'
 
-import { memo } from 'react'
+import { memo, useState, useRef, useCallback } from 'react'
+import { Pencil, Check, X } from 'lucide-react'
 import type { AccountData, BudgetEntry } from '@/lib/types'
 import { getDeviationClasses } from '@/lib/deviationColor'
 
@@ -12,6 +13,7 @@ interface Props {
   daysPassed: number
   daysInMonth: number
   onClick?: () => void
+  onRename?: (newName: string) => Promise<void>
 }
 
 function currency(n: number) {
@@ -21,7 +23,7 @@ function currency(n: number) {
 }
 
 const DashboardCard = memo(function DashboardCard({
-  clientName, metaAccount, googleAccount, budgets, daysPassed, daysInMonth, onClick,
+  clientName, metaAccount, googleAccount, budgets, daysPassed, daysInMonth, onClick, onRename,
 }: Props) {
   const metaBudgets   = budgets.filter((b) => b.source === 'facebook'   && !b.paused)
   const googleBudgets = budgets.filter((b) => b.source === 'google' && !b.paused)
@@ -62,15 +64,95 @@ const DashboardCard = memo(function DashboardCard({
   const hasMeta   = !!metaAccount   || metaBudgets.length > 0
   const hasGoogle = !!googleAccount || googleBudgets.length > 0
 
+  // ── Rename state ──────────────────────────────────────────────────────────
+  const [renaming, setRenaming]   = useState(false)
+  const [nameInput, setNameInput] = useState(clientName)
+  const [saving, setSaving]       = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const startRename = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    setNameInput(clientName)
+    setRenaming(true)
+    setTimeout(() => { inputRef.current?.select() }, 30)
+  }, [clientName])
+
+  const cancelRename = useCallback((e?: React.MouseEvent) => {
+    e?.stopPropagation()
+    setRenaming(false)
+    setNameInput(clientName)
+  }, [clientName])
+
+  const confirmRename = useCallback(async (e?: React.MouseEvent) => {
+    e?.stopPropagation()
+    const trimmed = nameInput.trim()
+    if (!trimmed || trimmed === clientName) { setRenaming(false); return }
+    if (!onRename) { setRenaming(false); return }
+    setSaving(true)
+    try {
+      await onRename(trimmed)
+    } finally {
+      setSaving(false)
+      setRenaming(false)
+    }
+  }, [nameInput, clientName, onRename])
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    e.stopPropagation()
+    if (e.key === 'Enter') confirmRename()
+    if (e.key === 'Escape') cancelRename()
+  }, [confirmRename, cancelRename])
+
   return (
     <div
-      className={`bg-white dark:bg-[#1a1a1a] rounded-2xl border ${borderColor} dark:${borderColor} p-5 flex flex-col gap-4 hover:shadow-md dark:hover:shadow-lg hover:bg-gray-50 dark:hover:bg-[#1e1e1e] transition shadow-sm ${onClick ? 'cursor-pointer' : ''}`}
-      onClick={onClick}
+      className={`bg-white dark:bg-[#1a1a1a] rounded-2xl border ${borderColor} dark:${borderColor} p-5 flex flex-col gap-4 hover:shadow-md dark:hover:shadow-lg hover:bg-gray-50 dark:hover:bg-[#1e1e1e] transition shadow-sm ${onClick && !renaming ? 'cursor-pointer' : ''}`}
+      onClick={!renaming ? onClick : undefined}
     >
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="font-bold text-gray-900 dark:text-gray-100 text-sm">{clientName}</p>
+        <div className="min-w-0 flex-1">
+          {renaming ? (
+            <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+              <input
+                ref={inputRef}
+                value={nameInput}
+                onChange={e => setNameInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                disabled={saving}
+                className="flex-1 min-w-0 px-2 py-0.5 text-sm font-bold bg-white dark:bg-[#111] border border-violet-400 dark:border-violet-500 rounded-lg text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-400/30"
+                autoFocus
+              />
+              <button
+                onClick={confirmRename}
+                disabled={saving}
+                className="p-1 rounded-md bg-violet-600 hover:bg-violet-700 text-white transition disabled:opacity-50 shrink-0"
+                title="Guardar"
+              >
+                <Check size={12} strokeWidth={3} />
+              </button>
+              <button
+                onClick={cancelRename}
+                disabled={saving}
+                className="p-1 rounded-md bg-gray-200 dark:bg-[#2a2a2a] hover:bg-gray-300 dark:hover:bg-[#333] text-gray-600 dark:text-gray-400 transition disabled:opacity-50 shrink-0"
+                title="Cancelar"
+              >
+                <X size={12} strokeWidth={3} />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 group/name">
+              <p className="font-bold text-gray-900 dark:text-gray-100 text-sm truncate">{clientName}</p>
+              {onRename && (
+                <button
+                  onClick={startRename}
+                  className="opacity-0 group-hover/name:opacity-100 p-0.5 rounded text-gray-400 hover:text-violet-500 dark:hover:text-violet-400 transition-opacity"
+                  title="Renombrar cliente"
+                >
+                  <Pencil size={11} />
+                </button>
+              )}
+            </div>
+          )}
           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
             {hasMeta && (
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#1877F2] text-white">Meta</span>

@@ -228,6 +228,19 @@ export default function DashboardPage() {
     router.push(`/cashflow?client=${encodeURIComponent(client)}&source=${source}`)
   }, [monthBudgets, router])
 
+  const handleRename = useCallback(async (oldName: string, newName: string) => {
+    const res = await fetch('/api/clients/rename', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oldName, newName }),
+    })
+    if (!res.ok) throw new Error('Error al renombrar')
+    appCache.invalidate('budgets')
+    setBudgets(prev => prev.map(b =>
+      b.client_name === oldName ? { ...b, client_name: newName } : b
+    ))
+  }, [])
+
   const renderCard = useCallback((client: string) => {
     const clientBudgets   = deduplicateBudgets(monthBudgets.filter(b => b.client_name === client))
     const metaAccountId   = clientBudgets.find(b => b.source === 'facebook')?.account_id
@@ -244,9 +257,10 @@ export default function DashboardPage() {
         daysPassed={daysPassed}
         daysInMonth={daysInMonth}
         onClick={() => handleClientClick(client)}
+        onRename={(newName) => handleRename(client, newName)}
       />
     )
-  }, [monthBudgets, accounts, daysPassed, daysInMonth, handleClientClick])
+  }, [monthBudgets, accounts, daysPassed, daysInMonth, handleClientClick, handleRename])
 
   return (
     <div>
