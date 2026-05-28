@@ -550,7 +550,7 @@ async function discoverAllAccounts(
 
   const today = new Date()
   const from  = new Date(today)
-  from.setDate(from.getDate() - 90)
+  from.setDate(from.getDate() - 365)
 
   const url = new URL(connectorUrl)
   url.searchParams.set('api_key', apiKey)
