@@ -47,6 +47,10 @@ export default function DashboardPage() {
     appCache.peek<{ data: AccountData[] }>(`windsor-${_initYear}-${_initMonth}`)?.data ?? [])
   const [budgets,  setBudgets]  = useState<BudgetEntry[]>(() =>
     appCache.peek<BudgetEntry[]>('budgets') ?? [])
+  const [onboardingNames, setOnboardingNames] = useState<string[]>(() => {
+    const cached = appCache.peek<OnboardingClient[]>('onboarding')
+    return Array.isArray(cached) ? cached.map(c => c.name).filter(Boolean) : []
+  })
   const [loading,          setLoading]          = useState(() =>
     !appCache.has(`windsor-${_initYear}-${_initMonth}`) || !appCache.has('budgets'))
   const [error,            setError]            = useState<string | null>(null)
@@ -66,6 +70,7 @@ export default function DashboardPage() {
       .then((clients) => {
         if (!Array.isArray(clients)) return
         setOnboardingCount(countIncomplete(clients))
+        setOnboardingNames(clients.map(c => c.name).filter(Boolean))
       })
       .catch(() => {})
   }, [])
@@ -159,19 +164,26 @@ export default function DashboardPage() {
       : daysInMonth
   const pctExpected = (daysPassed / daysInMonth) * 100
 
-  // All unique clients in this month, split into active / paused
+  // All unique clients — from any month's budgets + onboarding clients.
+  // Clients are permanent: a month change never removes a client from the list.
+  // A client only disappears if explicitly deleted or access is revoked.
   const { allClients, activeClients, pausedClients } = useMemo(() => {
-    const allClients = Array.from(new Set(monthBudgets.map((b) => b.client_name)))
+    const fromBudgets = budgets.map((b) => b.client_name)
+    const allClients  = Array.from(new Set([...fromBudgets, ...onboardingNames]))
+
     const activeClients = allClients.filter(client => {
       const cb = monthBudgets.filter(b => b.client_name === client)
+      // No budgets this month → client exists from other months/onboarding, show as active
+      if (cb.length === 0) return true
       return cb.some(b => !b.paused)
     })
     const pausedClients = allClients.filter(client => {
       const cb = monthBudgets.filter(b => b.client_name === client)
+      // Only paused if this month has entries AND all are paused
       return cb.length > 0 && cb.every(b => b.paused)
     })
     return { allClients, activeClients, pausedClients }
-  }, [monthBudgets])
+  }, [budgets, monthBudgets, onboardingNames])
 
   // Precompute all per-client metrics once — eliminates O(n²) on every sort/render
   const clientMetrics = useMemo(() => {

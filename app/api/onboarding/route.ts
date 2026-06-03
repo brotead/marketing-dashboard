@@ -62,6 +62,19 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (error) throw error
+
+    // Non-admin creators: auto-assign the new client to themselves so it survives reload.
+    // (GET filters by user_client_assignments for non-admins — without this the newly
+    // created client disappears on the next page load.)
+    if (!ctx.isSuperAdmin && ctx.userId && data?.name) {
+      await sb()
+        .from('user_client_assignments')
+        .upsert(
+          { user_id: ctx.userId, client_name: data.name },
+          { onConflict: 'user_id,client_name' }
+        )
+    }
+
     return NextResponse.json(data)
   } catch (err) {
     return NextResponse.json({ error: errMsg(err) }, { status: 500 })
