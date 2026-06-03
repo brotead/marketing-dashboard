@@ -101,6 +101,43 @@ export default function DashboardPage() {
       const metaOnlyAccounts: AccountData[] = (metaApiJson.accounts ?? []).filter((a: AccountData) => !windsorIds.has(a.account_id))
       setAccounts([...windsorAccounts, ...metaOnlyAccounts])
       setBudgets(bs)
+
+      // ── Monthly rollover ────────────────────────────────────────────────────
+      // If clients exist in previous months but have no entries in the current
+      // month, copy them forward automatically (once per month, keyed by year+month).
+      const rolloverKey = `rollover_done_${year}_${month}`
+      if (!localStorage.getItem(rolloverKey)) {
+        const allBudgets: BudgetEntry[] = Array.isArray(bs) ? bs : []
+        const currentMonthClients = new Set(
+          allBudgets.filter(b => b.year === year && b.month === month).map(b => b.client_name)
+        )
+        const prevMonth = month === 1 ? 12 : month - 1
+        const prevYear  = month === 1 ? year - 1 : year
+        const prevMonthClients = new Set(
+          allBudgets.filter(b => b.year === prevYear && b.month === prevMonth).map(b => b.client_name)
+        )
+        const needsRollover = [...prevMonthClients].some(c => !currentMonthClients.has(c))
+        if (needsRollover) {
+          try {
+            const res = await fetch('/api/budgets/rollover', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ year, month }),
+            })
+            if (res.ok) {
+              localStorage.setItem(rolloverKey, '1')
+              // Reload budgets to reflect new entries
+              appCache.invalidate('budgets')
+              const freshBudgets = await fetch('/api/budgets').then(r => r.json())
+              setBudgets(freshBudgets)
+            }
+          } catch { /* non-critical — rollover is best-effort */ }
+        } else {
+          // No rollover needed — mark as done so we don't check again this month
+          localStorage.setItem(rolloverKey, '1')
+        }
+      }
+      // ── End rollover ────────────────────────────────────────────────────────
     } catch (e) {
       if (!silent) setError(String(e))
     } finally {
@@ -164,26 +201,38 @@ export default function DashboardPage() {
       : daysInMonth
   const pctExpected = (daysPassed / daysInMonth) * 100
 
-  // All unique clients — from any month's budgets + onboarding clients.
-  // Clients are permanent: a month change never removes a client from the list.
-  // A client only disappears if explicitly deleted or access is revoked.
+  // All unique clients visible this month.
+  // Source of truth: current-month entries. Clients from prior months that don't
+  // have current-month entries yet are also included (the rollover will create them;
+  // until then they still need to be visible so the user doesn't think they vanished).
+  // Onboarding-only clients (no budget entries at all) are also shown.
   const { allClients, activeClients, pausedClients } = useMemo(() => {
-    const fromBudgets = budgets.map((b) => b.client_name)
-    const allClients  = Array.from(new Set([...fromBudgets, ...onboardingNames]))
+    // Clients that have entries this month
+    const thisMonthClients = new Set(monthBudgets.map(b => b.client_name))
+    // Clients from the immediately prior month (rollover candidates)
+    const prevMonth = month === 1 ? 12 : month - 1
+    const prevYear  = month === 1 ? year - 1 : year
+    const priorMonthClients = new Set(
+      budgets.filter(b => b.year === prevYear && b.month === prevMonth).map(b => b.client_name)
+    )
+    // Merge: current month + prior month + onboarding
+    const allClients = Array.from(new Set([
+      ...thisMonthClients,
+      ...priorMonthClients,
+      ...onboardingNames,
+    ]))
 
     const activeClients = allClients.filter(client => {
       const cb = monthBudgets.filter(b => b.client_name === client)
-      // No budgets this month → client exists from other months/onboarding, show as active
-      if (cb.length === 0) return true
+      if (cb.length === 0) return true   // rollover pending — still show
       return cb.some(b => !b.paused)
     })
     const pausedClients = allClients.filter(client => {
       const cb = monthBudgets.filter(b => b.client_name === client)
-      // Only paused if this month has entries AND all are paused
       return cb.length > 0 && cb.every(b => b.paused)
     })
     return { allClients, activeClients, pausedClients }
-  }, [budgets, monthBudgets, onboardingNames])
+  }, [budgets, monthBudgets, onboardingNames, month, year])
 
   // For each client: resolve account IDs from current month, falling back to any prior month.
   // This ensures clients that exist but have no budget entry yet this month still show real spend.
