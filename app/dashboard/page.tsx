@@ -185,16 +185,34 @@ export default function DashboardPage() {
     return { allClients, activeClients, pausedClients }
   }, [budgets, monthBudgets, onboardingNames])
 
+  // For each client: resolve account IDs from current month, falling back to any prior month.
+  // This ensures clients that exist but have no budget entry yet this month still show real spend.
+  const clientAccountIds = useMemo(() => {
+    const map: Record<string, { metaId?: string; googleId?: string }> = {}
+    for (const client of allClients) {
+      // Prefer current month; fall back to most recent prior month
+      const thisMonth = monthBudgets.filter(b => b.client_name === client)
+      const ref = thisMonth.length > 0
+        ? thisMonth
+        : [...budgets.filter(b => b.client_name === client)]
+            .sort((a, b) => b.year - a.year || b.month - a.month)
+      map[client] = {
+        metaId:   ref.find(b => b.source === 'facebook')?.account_id,
+        googleId: ref.find(b => b.source === 'google')?.account_id,
+      }
+    }
+    return map
+  }, [allClients, monthBudgets, budgets])
+
   // Precompute all per-client metrics once — eliminates O(n²) on every sort/render
   const clientMetrics = useMemo(() => {
     const map: Record<string, { spend: number; deviation: number }> = {}
     for (const client of allClients) {
       const cb = monthBudgets.filter(b => b.client_name === client)
       const totalBudget = cb.reduce((s, b) => s + b.budget_total, 0)
-      const mId = cb.find(b => b.source === 'facebook')?.account_id
-      const gId = cb.find(b => b.source === 'google')?.account_id
-      const ms  = accounts.find(a => a.account_id === mId && a.source === 'facebook')?.spend ?? 0
-      const gs  = accounts.find(a => a.account_id === gId && a.source === 'google')?.spend ?? 0
+      const { metaId, googleId } = clientAccountIds[client] ?? {}
+      const ms  = accounts.find(a => a.account_id === metaId   && a.source === 'facebook')?.spend ?? 0
+      const gs  = accounts.find(a => a.account_id === googleId && a.source === 'google')?.spend ?? 0
       const spend = ms + gs
       map[client] = {
         spend,
@@ -202,7 +220,7 @@ export default function DashboardPage() {
       }
     }
     return map
-  }, [allClients, monthBudgets, accounts, pctExpected])
+  }, [allClients, monthBudgets, clientAccountIds, accounts, pctExpected])
 
   const sortedActiveClients = useMemo(() => [...activeClients].sort((a, b) => {
     switch (sortOrder) {
@@ -255,10 +273,10 @@ export default function DashboardPage() {
 
   const renderCard = useCallback((client: string) => {
     const clientBudgets   = deduplicateBudgets(monthBudgets.filter(b => b.client_name === client))
-    const metaAccountId   = clientBudgets.find(b => b.source === 'facebook')?.account_id
-    const googleAccountId = clientBudgets.find(b => b.source === 'google')?.account_id
-    const metaAccount     = accounts.find(a => a.account_id === metaAccountId && a.source === 'facebook')
-    const googleAccount   = accounts.find(a => a.account_id === googleAccountId && a.source === 'google')
+    // Use pre-resolved account IDs (with fallback to prior months)
+    const { metaId, googleId } = clientAccountIds[client] ?? {}
+    const metaAccount     = accounts.find(a => a.account_id === metaId   && a.source === 'facebook')
+    const googleAccount   = accounts.find(a => a.account_id === googleId && a.source === 'google')
     return (
       <DashboardCard
         key={client}
@@ -272,7 +290,7 @@ export default function DashboardPage() {
         onRename={(newName) => handleRename(client, newName)}
       />
     )
-  }, [monthBudgets, accounts, daysPassed, daysInMonth, handleClientClick, handleRename])
+  }, [monthBudgets, accounts, clientAccountIds, daysPassed, daysInMonth, handleClientClick, handleRename])
 
   return (
     <div>
