@@ -20,19 +20,43 @@ export async function GET() {
     const base = sb().from('onboarding_clients').select('*').order('created_at', { ascending: false })
 
     if (ctx.isSuperAdmin) {
-      // Admin sees all — no workspace filter (profile.workspace_id may be stale)
+      // Admin sees all — no workspace filter
       const { data, error } = await base
       if (error) throw error
       return NextResponse.json(data ?? [])
     }
 
-    // Non-admin: filter by assigned client names (onboarding_clients.name = budgets.client_name)
-    if (ctx.assignedClients === null) {
-      // Table missing — deny
+    // Non-admin: use workspace_id as the primary visibility scope.
+    // All users in the same workspace see ALL onboarding entries from that workspace.
+    // This fixes the persistence issue for editors: entries are always visible to
+    // anyone in the same workspace, not just the creator.
+    if (ctx.workspaceId) {
+      const { data, error } = await base.eq('workspace_id', ctx.workspaceId)
+      if (error) throw error
+
+      // Also include legacy entries (no workspace_id) that are assigned to this user.
+      if (ctx.assignedClients && ctx.assignedClients.length > 0) {
+        const { data: extra } = await sb()
+          .from('onboarding_clients')
+          .select('*')
+          .is('workspace_id', null)
+          .in('name', ctx.assignedClients)
+          .order('created_at', { ascending: false })
+        const existingIds = new Set((data ?? []).map((c: { id: string }) => c.id))
+        const merged = [
+          ...(data ?? []),
+          ...(extra ?? []).filter((c: { id: string }) => !existingIds.has(c.id)),
+        ]
+        return NextResponse.json(merged)
+      }
+
+      return NextResponse.json(data ?? [])
+    }
+
+    // Fallback for users without a workspace: filter by assigned client names.
+    if (ctx.assignedClients === null || ctx.assignedClients.length === 0) {
       return NextResponse.json([])
     }
-    if (ctx.assignedClients.length === 0) return NextResponse.json([])
-
     const { data, error } = await base.in('name', ctx.assignedClients)
     if (error) throw error
     return NextResponse.json(data ?? [])
