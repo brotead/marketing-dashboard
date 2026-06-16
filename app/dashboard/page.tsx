@@ -234,10 +234,10 @@ export default function DashboardPage() {
     return { allClients, activeClients, pausedClients }
   }, [budgets, monthBudgets, onboardingNames, month, year])
 
-  // For each client: resolve account IDs from current month, falling back to any prior month.
-  // This ensures clients that exist but have no budget entry yet this month still show real spend.
+  // For each client: resolve all account IDs from current month, falling back to any prior month.
+  // Stores arrays to support clients with multiple accounts per platform (e.g. TANTAL ARG + BR).
   const clientAccountIds = useMemo(() => {
-    const map: Record<string, { metaId?: string; googleId?: string }> = {}
+    const map: Record<string, { metaIds: string[]; googleIds: string[] }> = {}
     for (const client of allClients) {
       // Prefer current month; fall back to most recent prior month
       const thisMonth = monthBudgets.filter(b => b.client_name === client)
@@ -246,22 +246,27 @@ export default function DashboardPage() {
         : [...budgets.filter(b => b.client_name === client)]
             .sort((a, b) => b.year - a.year || b.month - a.month)
       map[client] = {
-        metaId:   ref.find(b => b.source === 'facebook')?.account_id,
-        googleId: ref.find(b => b.source === 'google')?.account_id,
+        metaIds:   [...new Set(ref.filter(b => b.source === 'facebook').map(b => b.account_id))],
+        googleIds: [...new Set(ref.filter(b => b.source === 'google').map(b => b.account_id))],
       }
     }
     return map
   }, [allClients, monthBudgets, budgets])
 
-  // Precompute all per-client metrics once — eliminates O(n²) on every sort/render
+  // Precompute all per-client metrics once — eliminates O(n²) on every sort/render.
+  // Sums spend across ALL account IDs per platform to support multi-account clients.
   const clientMetrics = useMemo(() => {
     const map: Record<string, { spend: number; deviation: number }> = {}
     for (const client of allClients) {
       const cb = monthBudgets.filter(b => b.client_name === client)
       const totalBudget = cb.reduce((s, b) => s + b.budget_total, 0)
-      const { metaId, googleId } = clientAccountIds[client] ?? {}
-      const ms  = accounts.find(a => a.account_id === metaId   && a.source === 'facebook')?.spend ?? 0
-      const gs  = accounts.find(a => a.account_id === googleId && a.source === 'google')?.spend ?? 0
+      const { metaIds = [], googleIds = [] } = clientAccountIds[client] ?? {}
+      const ms = accounts
+        .filter(a => a.source === 'facebook' && metaIds.includes(a.account_id))
+        .reduce((s, a) => s + a.spend, 0)
+      const gs = accounts
+        .filter(a => a.source === 'google' && googleIds.includes(a.account_id))
+        .reduce((s, a) => s + a.spend, 0)
       const spend = ms + gs
       map[client] = {
         spend,
@@ -321,11 +326,31 @@ export default function DashboardPage() {
   }, [])
 
   const renderCard = useCallback((client: string) => {
-    const clientBudgets   = deduplicateBudgets(monthBudgets.filter(b => b.client_name === client))
-    // Use pre-resolved account IDs (with fallback to prior months)
-    const { metaId, googleId } = clientAccountIds[client] ?? {}
-    const metaAccount     = accounts.find(a => a.account_id === metaId   && a.source === 'facebook')
-    const googleAccount   = accounts.find(a => a.account_id === googleId && a.source === 'google')
+    const clientBudgets = deduplicateBudgets(monthBudgets.filter(b => b.client_name === client))
+    // Use pre-resolved account IDs (with fallback to prior months).
+    // For multi-account clients (e.g. TANTAL ARG + BR), merge spend into a single synthetic entry.
+    const { metaIds = [], googleIds = [] } = clientAccountIds[client] ?? {}
+
+    const metaAccounts  = accounts.filter(a => a.source === 'facebook' && metaIds.includes(a.account_id))
+    const googleAccounts = accounts.filter(a => a.source === 'google'  && googleIds.includes(a.account_id))
+
+    // Merge multiple accounts into one virtual AccountData for DashboardCard
+    const mergeAccounts = (list: AccountData[], source: string, name: string): AccountData | undefined => {
+      if (list.length === 0) return undefined
+      if (list.length === 1) return list[0]
+      return {
+        account_id:     list[0].account_id,
+        account_name:   name,
+        source,
+        spend:          list.reduce((s, a) => s + a.spend, 0),
+        recent_spend:   list.reduce((s, a) => s + (a.recent_spend ?? 0), 0),
+        campaign_count: list.reduce((s, a) => s + (a.campaign_count ?? 0), 0),
+      }
+    }
+
+    const metaAccount   = mergeAccounts(metaAccounts,   'facebook', client)
+    const googleAccount = mergeAccounts(googleAccounts, 'google',   client)
+
     return (
       <DashboardCard
         key={client}
