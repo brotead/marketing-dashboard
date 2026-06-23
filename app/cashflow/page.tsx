@@ -439,10 +439,9 @@ export default function CashflowPage() {
     appCache.peek<{ campaigns: CampaignSpend[] }>(`windsor-${_initYear}-${_initMonth}`)?.campaigns ?? [])
   const [windsorAdsets, setWindsorAdsets] = useState<CampaignSpend[]>(() =>
     appCache.peek<{ adsets: CampaignSpend[] }>(`windsor-${_initYear}-${_initMonth}`)?.adsets ?? [])
-  const [budgets, setBudgets] = useState<BudgetEntry[]>(() =>
-    appCache.peek<BudgetEntry[]>('budgets') ?? [])
+  const [budgets, setBudgets] = useState<BudgetEntry[]>([])
   const [loading, setLoading] = useState(() =>
-    !appCache.has(`windsor-${_initYear}-${_initMonth}`) || !appCache.has('budgets'))
+    !appCache.has(`windsor-${_initYear}-${_initMonth}`))
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<Selection | null>(null)
   const [modal, setModal] = useState<ModalState | null>(null)
@@ -464,7 +463,7 @@ export default function CashflowPage() {
       appCache.invalidateHard('budgets')
       appCache.invalidateHard('campaign-overrides')
     }
-    const hasCached = appCache.has(`windsor-${year}-${month}`) && appCache.has('budgets')
+    const hasCached = appCache.has(`windsor-${year}-${month}`)
     if (!hasCached) setLoading(true)
     setError(null)
     try {
@@ -475,8 +474,9 @@ export default function CashflowPage() {
             if (!r.ok) throw new Error('Error al conectar con Windsor')
             return r.json()
           }, TTL.HOUR),
-        appCache.fetch<BudgetEntry[]>('budgets', () =>
-          fetch('/api/budgets').then(r => r.json()), TTL.MIN1),
+        // Budgets siempre frescos desde Supabase — el sync del servidor puede agregar
+        // campañas nuevas en cualquier momento y no queremos servirlas desde caché.
+        fetch('/api/budgets').then(r => r.json()) as Promise<BudgetEntry[]>,
       ])
       const accs: AccountData[] = windsorJson.data ?? []
       const wCampaigns: CampaignSpend[] = windsorJson.campaigns ?? []
