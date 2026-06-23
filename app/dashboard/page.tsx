@@ -163,18 +163,35 @@ export default function DashboardPage() {
     return () => clearInterval(id)
   }, [fetchData])
 
-  // Hourly Meta campaign sync — auto-creates budget entries for new Meta campaigns
+  // Hourly sync: detects new campaigns across ALL Windsor accounts + Meta direct API.
+  // Runs from the Dashboard so new campaigns are picked up without requiring the user
+  // to visit each individual cashflow — covers accounts not in META_DIRECT_ACCOUNTS.
   useEffect(() => {
-    const SYNC_KEY = 'meta_sync_last_run'
+    const SYNC_KEY = 'campaign_sync_last_run'
     const ONE_HOUR = 60 * 60 * 1000
 
     async function runSync() {
+      const today = new Date()
+      const body  = JSON.stringify({ year: today.getFullYear(), month: today.getMonth() + 1 })
       try {
-        const res = await fetch('/api/meta/sync-campaigns', { method: 'POST' })
-        if (!res.ok) return
-        const data = await res.json()
+        // Windsor sync (all accounts) — server-side, finds new campaigns without user interaction
+        const windsorRes = await fetch('/api/campaigns/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+        })
+        const windsorData = windsorRes.ok ? await windsorRes.json() : null
+
+        // Meta direct API sync (accounts in META_DIRECT_ACCOUNTS env var)
+        const metaRes  = await fetch('/api/meta/sync-campaigns', { method: 'POST' })
+        const metaData = metaRes.ok ? await metaRes.json() : null
+
         localStorage.setItem(SYNC_KEY, String(Date.now()))
-        if ((data.synced?.new ?? 0) > 0) {
+
+        // Reload budgets if anything was added
+        const windsorAdded = (windsorData?.count ?? 0) > 0
+        const metaAdded    = (metaData?.synced?.new ?? 0) > 0
+        if (windsorAdded || metaAdded) {
           fetchData(true)
         }
       } catch { /* non-critical background task */ }
