@@ -238,14 +238,18 @@ async function autoSyncCampaigns(
     for (const [k, wc] of wcIndex) {
       if (!k.startsWith(as + '|')) continue
       const wcN = k.slice(as.length + 1)
-      if (wcN.includes(bNorm) || bNorm.includes(wcN)) return wc
+      // Only match if the budget name contains the Windsor name — not the reverse.
+      // Allowing wcN.includes(bNorm) causes short budget names to claim longer Windsor
+      // campaigns (e.g. "bb ao rotomoldeo" stealing "bb ao rotomoldeo cbo [test]"),
+      // which then triggers deleteSet to remove the correct auto_ entry.
+      if (bNorm.includes(wcN)) return wc
     }
     const ae = waIndex.get(`${as}|${bNorm}`)
     if (ae) return ae
     for (const [k, wc] of waIndex) {
       if (!k.startsWith(as + '|')) continue
       const waN = k.slice(as.length + 1)
-      if (waN.includes(bNorm) || bNorm.includes(waN)) return wc
+      if (bNorm.includes(waN)) return wc
     }
     return undefined
   }
