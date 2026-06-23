@@ -104,16 +104,54 @@ function tryMatchAll(
   windsorEntries: CampaignSpend[],
   useAdset: boolean
 ): Map<string, number> | null {
+  const getName = (wc: CampaignSpend): string =>
+    useAdset
+      ? (wc.adset_name ? normName(wc.adset_name) : normName(wc.campaign_name))
+      : normName(wc.campaign_name)
+
+  // Index Windsor entries by normalized name for O(1) exact-match lookup
+  const wcByName = new Map<string, CampaignSpend>()
+  for (const wc of windsorEntries) {
+    const key = `${wc.account_id}|${getName(wc)}`
+    if (!wcByName.has(key)) wcByName.set(key, wc)
+  }
+
+  // Process exact-match budgets first so they claim their Windsor entry
+  // before substring matches can steal it — prevents duplicate spend assignment.
+  const sorted = [...accountBudgets].sort((a, b) => {
+    const aExact = wcByName.has(`${a.account_id}|${normName(a.campaign_name)}`) ? 0 : 1
+    const bExact = wcByName.has(`${b.account_id}|${normName(b.campaign_name)}`) ? 0 : 1
+    return aExact - bExact
+  })
+
   const matchMap = new Map<string, number>()
-  for (const ab of accountBudgets) {
+  const usedKeys = new Set<string>() // each Windsor entry matched at most once
+
+  for (const ab of sorted) {
     const abNorm = normName(ab.campaign_name)
-    const match = windsorEntries.find((wc) => {
-      const wcName = useAdset
-        ? (wc.adset_name ? normName(wc.adset_name) : normName(wc.campaign_name))
-        : normName(wc.campaign_name)
-      return wcName === abNorm || wcName.includes(abNorm) || abNorm.includes(wcName)
-    })
+
+    // 1. Exact match (preferred)
+    const exactKey = `${ab.account_id}|${abNorm}`
+    let match: CampaignSpend | undefined
+    if (wcByName.has(exactKey) && !usedKeys.has(exactKey)) {
+      match = wcByName.get(exactKey)
+    }
+
+    // 2. Substring fallback — only if no exact match available
+    if (!match) {
+      for (const wc of windsorEntries) {
+        const wcKey = `${wc.account_id}|${getName(wc)}`
+        if (usedKeys.has(wcKey)) continue
+        const wcName = getName(wc)
+        if (wcName.includes(abNorm) || abNorm.includes(wcName)) {
+          match = wc
+          break
+        }
+      }
+    }
+
     if (!match) return null
+    usedKeys.add(`${match.account_id}|${getName(match)}`)
     matchMap.set(ab.campaign_id, match.spend)
   }
   return matchMap
