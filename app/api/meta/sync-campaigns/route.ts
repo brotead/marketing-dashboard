@@ -25,13 +25,26 @@ async function runSync() {
   const month = now.getMonth() + 1
   const log: string[] = []
 
-  // 1. All meta_direct account IDs
+  // 1. All accounts to sync: meta_direct_accounts PLUS any account already in budgets table.
+  // This ensures accounts linked via Windsor (not meta_direct) are also covered.
   const metaDirectIds = await getMetaDirectIdsFull()
-  const accountIds = Array.from(metaDirectIds)
-  if (accountIds.length === 0) {
-    return NextResponse.json({ log: ['No meta_direct_accounts configured'], synced: { new: 0, updated: 0, paused: 0 } })
+
+  const { data: budgetAccounts } = await supabase
+    .from('budgets')
+    .select('account_id')
+    .eq('source', 'facebook')
+    .neq('account_id', '__pending__')
+
+  const allAccountIds = new Set<string>(metaDirectIds)
+  for (const row of (budgetAccounts ?? [])) {
+    if (row.account_id) allAccountIds.add(row.account_id)
   }
-  log.push(`[Sync] Accounts: ${accountIds.join(', ')}`)
+
+  const accountIds = Array.from(allAccountIds)
+  if (accountIds.length === 0) {
+    return NextResponse.json({ log: ['No accounts configured'], synced: { new: 0, updated: 0, paused: 0 } })
+  }
+  log.push(`[Sync] Accounts (${accountIds.length}): ${accountIds.join(', ')}`)
 
   // 2. Load existing budgets for these accounts to find client_name + current-month state
   const { data: allBudgets, error: budgetErr } = await supabase

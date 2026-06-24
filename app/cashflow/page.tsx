@@ -293,7 +293,7 @@ async function autoSyncCampaigns(
   const unmatchedWcByAcct = new Map<string, CampaignSpend[]>()
   const addSeen = new Set<string>()
   for (const wc of windsorCampaigns) {
-    if (!wc.account_id || wc.spend <= 0) continue
+    if (!wc.account_id) continue
     const wcKey = `${wc.account_id}|${wc.source}|${normName(wc.campaign_name)}`
     if (matchedKeys.has(wcKey) || addSeen.has(wcKey)) continue
     const acctKey = `${wc.account_id}|${wc.source}`
@@ -530,6 +530,28 @@ export default function CashflowPage() {
           if (firstMeta) setSelected({ client: firstMeta, source: 'facebook' })
         }
       }
+
+      // Trigger Meta Graph API sync in background so new zero-spend campaigns
+      // are detected immediately without waiting for the hourly timer.
+      // 5-minute cooldown to avoid hammering Meta API on every navigation.
+      try {
+        const META_SYNC_KEY = 'campaign_meta_sync_last'
+        const last = parseInt(localStorage.getItem(META_SYNC_KEY) ?? '0')
+        if (force || Date.now() - last > 5 * 60 * 1000) {
+          localStorage.setItem(META_SYNC_KEY, String(Date.now()))
+          fetch('/api/meta/sync-campaigns', { method: 'POST' })
+            .then(r => r.json())
+            .then((result: { synced?: { new?: number } }) => {
+              if ((result?.synced?.new ?? 0) > 0) {
+                fetch('/api/budgets', { cache: 'no-store' })
+                  .then(r => r.json())
+                  .then((fresh: BudgetEntry[]) => { if (Array.isArray(fresh)) setBudgets(fresh) })
+                  .catch(() => {})
+              }
+            })
+            .catch(() => {})
+        }
+      } catch { /* never block the main flow */ }
 
       await autoSyncCampaigns(wCampaigns, wAdsets, bs, year, month, (added, updated, deleted) => {
         setBudgets(prev => {
