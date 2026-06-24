@@ -118,7 +118,12 @@ async function runSync() {
       const shouldPause = !isActive
       const existing = byKey[campaignId]
 
-      if (!existing) {
+      // Also check by normalized name so we don't insert a meta_ duplicate
+      // for campaigns that already exist under a different ID (bb_1_apr, auto_fb_, etc.)
+      const nameKey = `${accountId}|${normName(campaign.name)}`
+      const existingByName = byName[nameKey]?.find((b: { campaign_id: string }) => b.campaign_id !== campaignId)
+
+      if (!existing && !existingByName) {
         if (isActive) {
           const { error } = await supabase.from('budgets').insert({
             campaign_id:   campaignId,

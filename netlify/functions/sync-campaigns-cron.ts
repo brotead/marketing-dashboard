@@ -1,26 +1,28 @@
-export default async function syncCampaignsCron() {
+import type { Config } from '@netlify/functions'
+
+export default async function syncCampaignsCron(req: Request) {
   const siteUrl = process.env.URL ?? process.env.DEPLOY_PRIME_URL ?? ''
   const secret  = process.env.CRON_SECRET ?? ''
 
   if (!siteUrl) {
     console.error('[CRON] URL env var not set')
-    return { statusCode: 500, body: 'URL not configured' }
+    return new Response('URL not configured', { status: 500 })
   }
 
   try {
     const res = await fetch(`${siteUrl}/api/meta/sync-campaigns`, {
       method: 'GET',
-      headers: { Authorization: `Bearer ${secret}` },
+      headers: secret ? { Authorization: `Bearer ${secret}` } : {},
     })
     const body = await res.text()
     console.log(`[CRON] sync-campaigns → ${res.status}:`, body)
-    return { statusCode: 200, body }
+    return new Response(body, { status: 200 })
   } catch (err) {
     console.error('[CRON] sync-campaigns failed:', err)
-    return { statusCode: 500, body: String(err) }
+    return new Response(String(err), { status: 500 })
   }
 }
 
-export const config = {
+export const config: Config = {
   schedule: '@hourly',
 }
