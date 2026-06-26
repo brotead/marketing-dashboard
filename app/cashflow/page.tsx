@@ -186,8 +186,8 @@ function campaignSpend(
   // Manual override has priority
   if (budget.spend_override != null) return budget.spend_override
 
-  const accountBudgets = monthBudgets.filter(
-    (b) => b.account_id === budget.account_id && b.source === budget.source
+  const accountBudgets = deduplicateBudgets(
+    monthBudgets.filter((b) => b.account_id === budget.account_id && b.source === budget.source)
   )
   const accCampaigns = windsorCampaigns.filter(
     (c) => c.account_id === budget.account_id && c.source === budget.source
