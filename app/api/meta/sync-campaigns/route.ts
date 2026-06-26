@@ -163,7 +163,6 @@ async function runSync() {
 
       // Also sync paused state to any name-matched entries (fa_, auto_, or manual IDs)
       // that represent the same Meta campaign but were created outside the sync flow.
-      const nameKey = `${accountId}|${normName(campaign.name)}`
       const nameMatches = (byName[nameKey] ?? []).filter(b => b.campaign_id !== campaignId)
       for (const match of nameMatches) {
         if (!!match.paused !== shouldPause) {
