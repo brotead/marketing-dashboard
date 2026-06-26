@@ -103,7 +103,7 @@ function tryMatchAll(
   accountBudgets: BudgetEntry[],
   windsorEntries: CampaignSpend[],
   useAdset: boolean
-): Map<string, number> | null {
+): Map<string, number> {
   const getName = (wc: CampaignSpend): string =>
     useAdset
       ? (wc.adset_name ? normName(wc.adset_name) : normName(wc.campaign_name))
@@ -150,7 +150,26 @@ function tryMatchAll(
       }
     }
 
-    if (!match) return null
+    // 3. Prefix match — all words except last must match (handles typos like "Whastapp" vs "WhatsApp")
+    if (!match) {
+      const abWords = abNorm.split(' ')
+      const prefixLen = abWords.length - 1
+      if (prefixLen >= 3) {
+        const abPrefix = abWords.slice(0, prefixLen).join(' ')
+        for (const wc of windsorEntries) {
+          const wcKey = `${wc.account_id}|${getName(wc)}`
+          if (usedKeys.has(wcKey)) continue
+          const wcWords = getName(wc).split(' ')
+          const wcPrefix = wcWords.slice(0, wcWords.length - 1).join(' ')
+          if (abPrefix === wcPrefix && abPrefix.length > 0) {
+            match = wc
+            break
+          }
+        }
+      }
+    }
+
+    if (!match) continue  // best-effort: skip unmatched budget entry, don't fail the whole batch
     usedKeys.add(`${match.account_id}|${getName(match)}`)
     matchMap.set(ab.campaign_id, match.spend)
   }
@@ -180,13 +199,34 @@ function campaignSpend(
   // 1. Try campaign-level matching first
   if (accCampaigns.length > 0) {
     const m = tryMatchAll(accountBudgets, accCampaigns, false)
-    if (m) return m.get(budget.campaign_id) ?? 0
+    if (m.size > 0) {
+      if (m.has(budget.campaign_id)) return m.get(budget.campaign_id)!
+      // Partial match: attribute orphaned Windsor spend to unmatched budget entries
+      const totalWindsor = accCampaigns.reduce((s, c) => s + c.spend, 0)
+      const matched = Array.from(m.values()).reduce((s, v) => s + v, 0)
+      const orphaned = Math.max(0, totalWindsor - matched)
+      const unmatched = accountBudgets.filter(b => !m.has(b.campaign_id))
+      const unmatchedBudget = unmatched.reduce((s, b) => s + b.budget_total, 0)
+      if (unmatchedBudget > 0) return orphaned * (budget.budget_total / unmatchedBudget)
+      if (unmatched.length > 0) return orphaned / unmatched.length
+      return 0
+    }
   }
 
   // 2. Try adset-level matching (for clients where Supabase campaigns = Meta ad sets)
   if (accAdsets.length > 0) {
     const m = tryMatchAll(accountBudgets, accAdsets, true)
-    if (m) return m.get(budget.campaign_id) ?? 0
+    if (m.size > 0) {
+      if (m.has(budget.campaign_id)) return m.get(budget.campaign_id)!
+      const totalWindsor = accAdsets.reduce((s, c) => s + c.spend, 0)
+      const matched = Array.from(m.values()).reduce((s, v) => s + v, 0)
+      const orphaned = Math.max(0, totalWindsor - matched)
+      const unmatched = accountBudgets.filter(b => !m.has(b.campaign_id))
+      const unmatchedBudget = unmatched.reduce((s, b) => s + b.budget_total, 0)
+      if (unmatchedBudget > 0) return orphaned * (budget.budget_total / unmatchedBudget)
+      if (unmatched.length > 0) return orphaned / unmatched.length
+      return 0
+    }
   }
 
   // 3. Fall back to proportional distribution from account total
@@ -628,7 +668,7 @@ export default function CashflowPage() {
   const checkNewCampaigns = useCallback(async () => {
     try {
       const [windsorRes, budgetRes] = await Promise.all([
-        fetch(`/api/windsor?year=${year}&month=${month}&force=true`),
+        fetch(`/api/windsor?year=${year}&month=${month}`),
         fetch('/api/budgets', { cache: 'no-store' }),
       ])
       if (!windsorRes.ok) return
@@ -719,7 +759,10 @@ export default function CashflowPage() {
     return () => clearInterval(id)
   }, [syncCampaigns])
 
-  const monthBudgets = budgets.filter((b) => b.year === year && b.month === month)
+  const monthBudgets = useMemo(
+    () => budgets.filter((b) => b.year === year && b.month === month),
+    [budgets, year, month]
+  )
 
   const daysInMonth = new Date(year, month, 0).getDate()
   const daysPassed =

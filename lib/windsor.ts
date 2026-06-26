@@ -541,12 +541,20 @@ export async function fetchFatigueAds(allowedAccountIds?: Set<string>): Promise<
 // accounts that were inactive this month. This function does a lightweight pass
 // over the last 90 days to discover ALL connected accounts, then merges them into
 // the monthly results (spend=0 for accounts with no activity this month).
+
+const _discoverCache = new Map<string, { ts: number; data: Map<string, { account_id: string; account_name: string }> }>()
+const DISCOVER_TTL = 24 * 60 * 60 * 1000  // 24h
+
 async function discoverAllAccounts(
   connectorUrl: string,
   sourceLabel: string
 ): Promise<Map<string, { account_id: string; account_name: string }>> {
   const apiKey = process.env.WINDSOR_API_KEY
   if (!apiKey) return new Map()
+
+  const cacheKey = sourceLabel
+  const cached = _discoverCache.get(cacheKey)
+  if (cached && Date.now() - cached.ts < DISCOVER_TTL) return cached.data
 
   const today = new Date()
   const from  = new Date(today)
@@ -572,6 +580,7 @@ async function discoverAllAccounts(
         account_name: r.account_name ?? r.account_id ?? '',
       })
     }
+    _discoverCache.set(cacheKey, { ts: Date.now(), data: map })
     return map
   } catch {
     return new Map()
