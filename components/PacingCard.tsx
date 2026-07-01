@@ -18,6 +18,9 @@ const KPI_LABEL: Record<GoalEntry['kpi'], string> = {
   mensajes:    'Mensajes WA',
   seguidores:  'Seguidores IG',
   conversiones:'Conversiones Google',
+  alcance:     'Alcance',
+  formularios: 'Formularios',
+  compras:     'Compras',
 }
 
 const STATUS = {

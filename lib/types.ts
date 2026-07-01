@@ -33,7 +33,7 @@ export interface BudgetEntry {
 
 export interface GoalEntry {
   client_name: string
-  kpi: 'mensajes' | 'seguidores' | 'conversiones'
+  kpi: 'mensajes' | 'seguidores' | 'conversiones' | 'alcance' | 'formularios' | 'compras'
   year: number
   month: number
   goal_value: number

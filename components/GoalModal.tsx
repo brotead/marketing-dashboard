@@ -6,6 +6,7 @@ import type { GoalEntry } from '@/lib/types'
 
 interface Props {
   existing: GoalEntry | null
+  defaultClient?: string
   year: number
   month: number
   existingClients: string[]
@@ -19,13 +20,16 @@ const MONTHS = [
 ]
 
 const KPI_OPTIONS: { value: GoalEntry['kpi']; label: string; desc: string }[] = [
-  { value: 'mensajes',     label: 'Mensajes WA',       desc: 'Conversaciones iniciadas (manual)' },
-  { value: 'seguidores',  label: 'Seguidores IG',      desc: 'Nuevos seguidores (manual)' },
-  { value: 'conversiones', label: 'Conversiones',       desc: 'Google Ads (automático)' },
+  { value: 'mensajes',     label: 'Mensajes WA',   desc: 'Conversaciones iniciadas (manual)' },
+  { value: 'seguidores',   label: 'Seguidores IG', desc: 'Nuevos seguidores (manual)' },
+  { value: 'conversiones', label: 'Conversiones',  desc: 'Google Ads (automático)' },
+  { value: 'alcance',      label: 'Alcance',        desc: 'Alcance mensual (manual)' },
+  { value: 'formularios',  label: 'Formularios',    desc: 'Formularios completados (manual)' },
+  { value: 'compras',      label: 'Compras',        desc: 'Compras / conversiones (manual)' },
 ]
 
-export default function GoalModal({ existing, year, month, existingClients, onSave, onClose }: Props) {
-  const [clientName, setClientName] = useState(existing?.client_name ?? '')
+export default function GoalModal({ existing, defaultClient, year, month, existingClients, onSave, onClose }: Props) {
+  const [clientName, setClientName] = useState(existing?.client_name ?? defaultClient ?? '')
   const [kpi, setKpi] = useState<GoalEntry['kpi']>(existing?.kpi ?? 'mensajes')
   const [goalValue, setGoalValue] = useState(String(existing?.goal_value ?? ''))
   const [saving, setSaving] = useState(false)
@@ -131,7 +135,7 @@ export default function GoalModal({ existing, year, month, existingClients, onSa
             </div>
           )}
 
-          {(kpi === 'mensajes' || kpi === 'seguidores') && (
+          {kpi !== 'conversiones' && (
             <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-400">
               Este KPI requiere ingreso manual. Podés actualizarlo directamente desde la tarjeta del cliente.
             </div>

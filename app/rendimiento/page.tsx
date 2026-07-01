@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { RefreshCw, Plus } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
-import PacingCard from '@/components/PacingCard'
+import ClientGoalCard from '@/components/ClientGoalCard'
 import dynamic from 'next/dynamic'
 const GoalModal = dynamic(() => import('@/components/GoalModal'), { ssr: false })
 import type { GoalEntry, BudgetEntry, CampaignData } from '@/lib/types'
@@ -54,8 +54,9 @@ export default function RendimientoPage() {
     !appCache.has(`windsor-${_initYear}-${_initMonth}`) || !appCache.has('budgets') ||
     !appCache.has('goals') || !appCache.has(`kpis-${_initYear}-${_initMonth}`))
   const [error,        setError]        = useState<string | null>(null)
-  const [showModal,    setShowModal]    = useState(false)
-  const [editingGoal,  setEditingGoal]  = useState<GoalEntry | null>(null)
+  const [showModal,       setShowModal]       = useState(false)
+  const [editingGoal,     setEditingGoal]     = useState<GoalEntry | null>(null)
+  const [newGoalClient,   setNewGoalClient]   = useState<string | undefined>()
 
   const fetchData = useCallback(async (force = false) => {
     if (force) {
@@ -215,18 +216,28 @@ export default function RendimientoPage() {
   }
 
   const kpiOrder = useMemo<Record<GoalEntry['kpi'], number>>(
-    () => ({ mensajes: 0, conversiones: 1, seguidores: 2 }),
+    () => ({ mensajes: 0, conversiones: 1, seguidores: 2, alcance: 3, formularios: 4, compras: 5 }),
     []
   )
 
   const sortedGoals = useMemo(
     () => [...currentGoals].sort((a, b) => {
-      const kpiDiff = (kpiOrder[a.kpi] ?? 9) - (kpiOrder[b.kpi] ?? 9)
-      if (kpiDiff !== 0) return kpiDiff
-      return b.goal_value - a.goal_value
+      const clientDiff = a.client_name.localeCompare(b.client_name)
+      if (clientDiff !== 0) return clientDiff
+      return (kpiOrder[a.kpi] ?? 9) - (kpiOrder[b.kpi] ?? 9)
     }),
     [currentGoals, kpiOrder]
   )
+
+  const goalsByClient = useMemo(() => {
+    const map = new Map<string, typeof sortedGoals>()
+    for (const goal of sortedGoals) {
+      const list = map.get(goal.client_name) ?? []
+      list.push(goal)
+      map.set(goal.client_name, list)
+    }
+    return map
+  }, [sortedGoals])
 
   const statusCounts = useMemo(
     () => currentGoals.reduce((acc, g) => {
@@ -274,7 +285,7 @@ export default function RendimientoPage() {
           </select>
           {canEdit && (
             <button
-              onClick={() => { setEditingGoal(null); setShowModal(true) }}
+              onClick={() => { setNewGoalClient(undefined); setEditingGoal(null); setShowModal(true) }}
               className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 shadow-sm"
             >
               <Plus size={14} /> Agregar objetivo
@@ -330,30 +341,30 @@ export default function RendimientoPage() {
         </div>
       )}
 
-      {!loading && !error && sortedGoals.length > 0 && (
+      {!loading && !error && goalsByClient.size > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {sortedGoals.map((goal) => {
-            const { value: autoVal, source: autoSource } = getAutoValue(goal)
-            const currentValue =
-              goal.current_override != null
-                ? goal.current_override
-                : (autoVal ?? 0)
-            const pacing = calcPacing(goal.goal_value, currentValue, year, month)
-            return (
-              <PacingCard
-                key={`${goal.client_name}-${goal.kpi}`}
-                goal={goal}
-                pacing={pacing}
-                autoValue={autoVal}
-                autoSource={autoSource}
-                onEdit={() => { setEditingGoal(goal); setShowModal(true) }}
-                onDelete={() => handleDeleteGoal(goal)}
-                onUpdateOverride={async (val) => {
-                  await handleSaveGoal({ ...goal, current_override: val })
-                }}
-              />
-            )
-          })}
+          {Array.from(goalsByClient.entries()).map(([clientName, clientGoals]) => (
+            <ClientGoalCard
+              key={clientName}
+              clientName={clientName}
+              canEdit={canEdit}
+              onAddGoal={(client) => { setNewGoalClient(client); setEditingGoal(null); setShowModal(true) }}
+              goals={clientGoals.map(goal => {
+                const { value: autoVal, source: autoSource } = getAutoValue(goal)
+                const currentValue = goal.current_override != null ? goal.current_override : (autoVal ?? 0)
+                const pacing = calcPacing(goal.goal_value, currentValue, year, month)
+                return {
+                  goal,
+                  pacing,
+                  autoValue: autoVal,
+                  autoSource,
+                  onEdit: () => { setEditingGoal(goal); setShowModal(true) },
+                  onDelete: () => handleDeleteGoal(goal),
+                  onUpdateOverride: async (val: number | null) => handleSaveGoal({ ...goal, current_override: val }),
+                }
+              })}
+            />
+          ))}
         </div>
       )}
 
@@ -376,7 +387,7 @@ export default function RendimientoPage() {
                 <p className="text-xs text-gray-400 dark:text-gray-500">Sin objetivos para este período</p>
                 {canEdit && (
                   <button
-                    onClick={() => { setEditingGoal(null); setShowModal(true) }}
+                    onClick={() => { setNewGoalClient(client); setEditingGoal(null); setShowModal(true) }}
                     className="mt-1 text-xs text-blue-500 hover:text-blue-400 font-semibold text-left"
                   >
                     + Agregar objetivo
@@ -391,11 +402,12 @@ export default function RendimientoPage() {
       {(showModal || editingGoal != null) && (
         <GoalModal
           existing={editingGoal}
+          defaultClient={newGoalClient}
           year={year}
           month={month}
           existingClients={allClients}
           onSave={handleSaveGoal}
-          onClose={() => { setShowModal(false); setEditingGoal(null) }}
+          onClose={() => { setShowModal(false); setEditingGoal(null); setNewGoalClient(undefined) }}
         />
       )}
     </div>
