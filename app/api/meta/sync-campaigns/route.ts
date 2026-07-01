@@ -90,6 +90,53 @@ async function runSync() {
 
   let newCount = 0, updatedCount = 0, pausedCount = 0
 
+  // 3b. Month-to-month carryover: campaigns active at end of last month that
+  // don't exist yet this month get created now (budget_total=0, paused=false).
+  // The Meta API loop below will then update their paused state correctly.
+  {
+    const prevYear  = month === 1 ? year - 1 : year
+    const prevMonth = month === 1 ? 12 : month - 1
+    const { data: prevActive } = await supabase
+      .from('budgets')
+      .select('campaign_name, client_name, account_id, source, workspace_id')
+      .eq('year', prevYear)
+      .eq('month', prevMonth)
+      .in('account_id', accountIds)
+      .eq('source', 'facebook')
+      .eq('paused', false)
+      .neq('campaign_name', '__auto__')
+      .neq('account_id', '__pending__')
+
+    for (const prev of (prevActive ?? [])) {
+      const nameKey = `${prev.account_id}|${normName(prev.campaign_name)}`
+      if (byName[nameKey]?.length > 0) continue
+
+      const slug       = normName(prev.campaign_name).replace(/[^a-z0-9]/g, '').slice(0, 20) || 'x'
+      const campaignId = `co_${prev.account_id}_${slug}`
+      const clientName = clientByAccount[prev.account_id] ?? prev.client_name
+
+      const { error } = await supabase.from('budgets').upsert({
+        campaign_id:   campaignId,
+        campaign_name: prev.campaign_name,
+        client_name:   clientName,
+        source:        'facebook',
+        account_id:    prev.account_id,
+        year, month,
+        budget_total:  0,
+        paused:        false,
+        workspace_id:  workspaceByAccount[prev.account_id] ?? prev.workspace_id ?? null,
+      }, { onConflict: 'campaign_id,year,month' })
+
+      if (!error) {
+        newCount++
+        log.push(`[Carryover] "${prev.campaign_name}" from ${prevYear}/${prevMonth} → ${year}/${month}`)
+        const row = { campaign_id: campaignId, campaign_name: prev.campaign_name, client_name: clientName, account_id: prev.account_id, year, month, paused: false, workspace_id: workspaceByAccount[prev.account_id] ?? null }
+        byKey[campaignId] = row
+        byName[nameKey]   = [row]
+      }
+    }
+  }
+
   // Group by account
   const byAccount: Record<string, typeof campaigns> = {}
   for (const c of campaigns) {

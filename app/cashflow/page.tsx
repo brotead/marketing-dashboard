@@ -247,7 +247,42 @@ async function autoSyncCampaigns(
   month: number,
   onDone: (added: BudgetEntry[], updated: BudgetEntry[], deleted: string[]) => void,
 ) {
-  const monthBudgets = allBudgets.filter(b => b.year === year && b.month === month)
+  // ── Month-to-month carryover ─────────────────────────────────────────────────
+  // Campaigns active at the end of last month must appear in the current month
+  // even if they have no Windsor spend yet (e.g. paused or just restarted).
+  const prevYear  = month === 1 ? year - 1 : year
+  const prevMonth = month === 1 ? 12 : month - 1
+  const baseBudgets = allBudgets.filter(b => b.year === year && b.month === month)
+  const prevActive  = allBudgets.filter(
+    b => b.year === prevYear && b.month === prevMonth
+      && !b.paused && b.campaign_name !== '__auto__' && b.account_id !== '__pending__'
+  )
+
+  const existingKeys = new Set(
+    baseBudgets
+      .filter(b => b.campaign_name !== '__auto__')
+      .map(b => `${b.account_id}|${b.source}|${normName(b.campaign_name)}`)
+  )
+  const carryover: BudgetEntry[] = []
+  for (const prev of prevActive) {
+    const key = `${prev.account_id}|${prev.source}|${normName(prev.campaign_name)}`
+    if (existingKeys.has(key)) continue
+    existingKeys.add(key)
+    const slug = normName(prev.campaign_name).replace(/[^a-z0-9]/g, '').slice(0, 20) || 'x'
+    carryover.push({
+      campaign_id:   `co_${prev.account_id}_${slug}`,
+      campaign_name: prev.campaign_name,
+      client_name:   prev.client_name,
+      source:        prev.source,
+      account_id:    prev.account_id,
+      year, month,
+      budget_total:  0,
+      paused:        false,
+    })
+  }
+
+  // Include carryover in the month view so Windsor detection below doesn't double-add them
+  const monthBudgets = [...baseBudgets, ...carryover]
 
   const accountToClient = new Map<string, { client: string; source: string }>()
   for (const b of monthBudgets) {
@@ -372,8 +407,9 @@ async function autoSyncCampaigns(
   }
 
   const toDelete = Array.from(deleteSet)
+  const allToAdd = [...carryover, ...toAdd]
   const promises: Promise<unknown>[] = [
-    ...[...toAdd, ...toUpdate].map(e => fetch('/api/budgets', {
+    ...[...allToAdd, ...toUpdate].map(e => fetch('/api/budgets', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(e),
     })),
     ...toDelete.map(id => fetch('/api/budgets', {
@@ -382,7 +418,7 @@ async function autoSyncCampaigns(
     })),
   ]
   if (promises.length > 0) await Promise.all(promises)
-  onDone(toAdd, toUpdate, toDelete)
+  onDone(allToAdd, toUpdate, toDelete)
 }
 
 function PendingClientPanel({ client, source, windsorCampaigns, year, month, onResolved }: {
