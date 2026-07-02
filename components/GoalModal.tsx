@@ -86,29 +86,20 @@ export default function GoalModal({ existing, defaultClient, year, month, existi
           {/* KPI selector */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">KPI</label>
-            <div className="flex flex-col gap-2">
+            <div className="grid grid-cols-3 gap-2">
               {KPI_OPTIONS.map((opt) => (
-                <label
+                <button
                   key={opt.value}
-                  className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition ${
+                  type="button"
+                  onClick={() => setKpi(opt.value)}
+                  className={`px-3 py-2 rounded-xl border text-sm font-medium text-left transition ${
                     kpi === opt.value
-                      ? 'border-blue-500 bg-blue-600/10'
-                      : 'border-[#333] hover:border-[#444]'
+                      ? 'border-blue-500 bg-blue-600/15 text-blue-400'
+                      : 'border-[#333] text-gray-300 hover:border-[#444] hover:bg-[#252525]'
                   }`}
                 >
-                  <input
-                    type="radio"
-                    name="kpi"
-                    value={opt.value}
-                    checked={kpi === opt.value}
-                    onChange={() => setKpi(opt.value)}
-                    className="mt-0.5"
-                  />
-                  <div>
-                    <p className="text-sm font-medium text-gray-100">{opt.label}</p>
-                    <p className="text-xs text-gray-400">{opt.desc}</p>
-                  </div>
-                </label>
+                  {opt.label}
+                </button>
               ))}
             </div>
           </div>
