@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
-import { RefreshCw, Plus, Pencil, AlertTriangle, Trash2, X, Sparkles, Download } from 'lucide-react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { RefreshCw, AlertTriangle, Trash2, X, Sparkles, Download, GripVertical } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import CampaignRow from '@/components/CampaignRow'
 import dynamic from 'next/dynamic'
@@ -247,6 +247,12 @@ function campaignResults(
     c.account_id === budget.account_id && c.source === budget.source && normName(c.adset_name ?? '') === norm
   )
   return adsetMatch?.results ?? 0
+}
+
+function getOrderedBudgets(budgets: BudgetEntry[], order: string[]): BudgetEntry[] {
+  if (!order.length) return budgets
+  const pos = new Map(order.map((id, i) => [id, i]))
+  return [...budgets].sort((a, b) => (pos.get(a.campaign_id) ?? 9999) - (pos.get(b.campaign_id) ?? 9999))
 }
 
 // ── Full Windsor sync ────────────────────────────────────────────────────────────
@@ -541,8 +547,9 @@ export default function CashflowPage() {
   const [campaignDeleteConfirm, setCampaignDeleteConfirm] = useState<BudgetEntry | null>(null)
   const [newToasts, setNewToasts] = useState<{ id: string; name: string; client: string }[]>([])
   const [newCampaignIds, setNewCampaignIds] = useState<Set<string>>(new Set())
-  const [editingTotal, setEditingTotal] = useState(false)
-  const [totalInput, setTotalInput] = useState('')
+  const [campaignOrder, setCampaignOrder] = useState<Record<string, string[]>>({})
+  const dragRef = useRef<string | null>(null)
+  const lastHoverRef = useRef<string | null>(null)
   const [countdown, setCountdown] = useState(3600)
   const [carryoverInfo, setCarryoverInfo] = useState<{ count: number; fromMonth: number } | null>(null)
   const [exportLoading, setExportLoading] = useState(false)
@@ -697,6 +704,14 @@ export default function CashflowPage() {
   }, [year, month])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  // Load campaign order from localStorage
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('cashflow_campaign_order') ?? '{}')
+      if (stored && typeof stored === 'object') setCampaignOrder(stored)
+    } catch {}
+  }, [])
 
   // Load "nueva" campaign IDs from localStorage (persist 24h)
   useEffect(() => {
@@ -987,28 +1002,6 @@ export default function CashflowPage() {
     ))
   }, [year, month])
 
-  const handleTotalSave = useCallback(async () => {
-    const newTotal = parseFloat(totalInput.replace(/\./g, '').replace(',', '.'))
-    if (isNaN(newTotal) || newTotal <= 0) { setEditingTotal(false); return }
-    const currentTotal = activeBudgets.reduce((s, b) => s + b.budget_total, 0)
-    if (currentTotal === 0) { setEditingTotal(false); return }
-    const ratio = newTotal / currentTotal
-    const updated = activeBudgets.map((b) => ({ ...b, budget_total: Math.round(b.budget_total * ratio) }))
-    await Promise.all(updated.map((entry) =>
-      fetch('/api/budgets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(entry),
-      })
-    ))
-    appCache.invalidate('budgets')
-    setBudgets((prev) => prev.map((b) => {
-      const u = updated.find((u) => u.campaign_id === b.campaign_id && u.year === b.year && u.month === b.month)
-      return u ?? b
-    }))
-    setEditingTotal(false)
-  }, [activeBudgets, totalInput])
-
   function getClientAccountId(clientName: string, source: Source): string {
     return monthBudgets.find((b) => b.client_name === clientName && b.source === source)?.account_id ?? ''
   }
@@ -1086,7 +1079,7 @@ export default function CashflowPage() {
           return (
             <div key={client} className="group/row relative">
               <button
-                onClick={() => { setSelected({ client, source }); setEditingTotal(false) }}
+                onClick={() => { setSelected({ client, source }) }}
                 className={`w-full flex items-center gap-2.5 pl-3 pr-7 py-2 rounded-lg text-sm text-left transition ${
                   isSelected ? `${color} text-white font-semibold` : allPaused ? 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-[#252525]' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-[#252525]'
                 }`}
@@ -1319,32 +1312,7 @@ export default function CashflowPage() {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
                   <div className="bg-white dark:bg-[#111111] rounded-2xl border border-gray-100 dark:border-white/[0.06] px-5 py-4 shadow-sm">
                     <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Presupuesto total</p>
-                    {editingTotal ? (
-                      <div className="flex items-center gap-1 mt-0.5">
-                        <input
-                          autoFocus
-                          type="text"
-                          value={totalInput}
-                          onChange={(e) => setTotalInput(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === 'Enter') handleTotalSave(); if (e.key === 'Escape') setEditingTotal(false) }}
-                          className="w-full text-sm font-bold bg-gray-50 dark:bg-[#252525] border border-blue-500/60 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-gray-900 dark:text-gray-100 tabular-nums"
-                        />
-                        <button onClick={handleTotalSave} className="text-blue-400 text-xs font-semibold hover:text-blue-300 shrink-0">OK</button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-1.5">
-                        <p className="text-xl font-bold text-gray-900 dark:text-white tabular-nums tracking-tight">{currency(clientSummary.budget)}</p>
-                        {canEdit && (
-                          <button
-                            onClick={() => { setTotalInput(String(clientSummary.budget)); setEditingTotal(true) }}
-                            className="text-gray-600 hover:text-gray-400 transition mt-0.5"
-                            title="Editar presupuesto total"
-                          >
-                            <Pencil size={11} />
-                          </button>
-                        )}
-                      </div>
-                    )}
+                    <p className="text-xl font-bold text-gray-900 dark:text-white tabular-nums tracking-tight">{currency(clientSummary.budget)}</p>
                   </div>
                   <div className="bg-white dark:bg-[#111111] rounded-2xl border border-gray-100 dark:border-white/[0.06] px-5 py-4 shadow-sm">
                     <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Gasto acumulado</p>
@@ -1401,39 +1369,50 @@ export default function CashflowPage() {
                     {pausedBudgets.length > 0 && ` · ${pausedBudgets.length} pausada${pausedBudgets.length !== 1 ? 's' : ''}`}
                   </span>
                 </div>
-                {canEdit && (
-                  <button
-                    onClick={() => setModal({
-                      entry: null,
-                      clientName: selected.client,
-                      accountId: getClientAccountId(selected.client, selected.source),
-                      source: selected.source,
-                    })}
-                    className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 font-medium bg-blue-600/15 hover:bg-blue-600/25 px-3 py-1.5 rounded-lg transition"
-                  >
-                    <Plus size={12} />
-                    Agregar campaña
-                  </button>
-                )}
               </div>
 
-              {/* Active campaigns */}
+              {/* Active campaigns — drag to reorder */}
               <div className="space-y-2 mb-3">
-                {activeBudgets.map((b) => {
+                {getOrderedBudgets(activeBudgets, campaignOrder[`${selected.client}|${selected.source}`] ?? []).map((b) => {
+                  const orderKey = `${selected.client}|${selected.source}`
                   const spend = campaignSpend(b, monthBudgets, accounts, windsorCampaigns, windsorAdsets)
                   const cf = calcCashflow(b.budget_total, spend, year, month)
                   return (
-                    <CampaignRow
+                    <div
                       key={b.campaign_id}
-                      budget={b}
-                      cashflow={cf}
-                      results={campaignResults(b, windsorCampaigns, windsorAdsets)}
-                      isNew={newCampaignIds.has(b.campaign_id)}
-                      onEdit={() => setModal({ entry: b, clientName: b.client_name, accountId: b.account_id, source: b.source as Source })}
-                      onDelete={() => setCampaignDeleteConfirm(b)}
-                      onPause={() => handlePause(b)}
-                      onSpendOverride={(val) => handleSpendOverride(b, val)}
-                    />
+                      draggable
+                      onDragStart={() => { dragRef.current = b.campaign_id; lastHoverRef.current = null }}
+                      onDragOver={(e) => {
+                        e.preventDefault()
+                        if (b.campaign_id === dragRef.current || b.campaign_id === lastHoverRef.current) return
+                        lastHoverRef.current = b.campaign_id
+                        const dragId = dragRef.current
+                        if (!dragId) return
+                        const current = campaignOrder[orderKey] ?? activeBudgets.map(x => x.campaign_id)
+                        const from = current.indexOf(dragId)
+                        const to = current.indexOf(b.campaign_id)
+                        if (from === -1 || to === -1) return
+                        const next = [...current]
+                        next.splice(from, 1)
+                        next.splice(to, 0, dragId)
+                        const newOrder = { ...campaignOrder, [orderKey]: next }
+                        setCampaignOrder(newOrder)
+                        try { localStorage.setItem('cashflow_campaign_order', JSON.stringify(newOrder)) } catch {}
+                      }}
+                      onDragEnd={() => { dragRef.current = null; lastHoverRef.current = null }}
+                    >
+                      <CampaignRow
+                        budget={b}
+                        cashflow={cf}
+                        results={campaignResults(b, windsorCampaigns, windsorAdsets)}
+                        isNew={newCampaignIds.has(b.campaign_id)}
+                        showDragHandle
+                        onEdit={() => setModal({ entry: b, clientName: b.client_name, accountId: b.account_id, source: b.source as Source })}
+                        onDelete={() => setCampaignDeleteConfirm(b)}
+                        onPause={() => handlePause(b)}
+                        onSpendOverride={(val) => handleSpendOverride(b, val)}
+                      />
+                    </div>
                   )
                 })}
               </div>

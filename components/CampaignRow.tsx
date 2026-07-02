@@ -1,7 +1,7 @@
 'use client'
 
 import { memo, useState } from 'react'
-import { Settings, Trash2, PauseCircle, PlayCircle, Pencil, X } from 'lucide-react'
+import { Settings, Trash2, PauseCircle, PlayCircle, Pencil, X, GripVertical } from 'lucide-react'
 import type { BudgetEntry, CashflowResult } from '@/lib/types'
 import { getDeviationClasses } from '@/lib/deviationColor'
 
@@ -10,6 +10,7 @@ interface Props {
   cashflow: CashflowResult
   results?: number
   isNew?: boolean
+  showDragHandle?: boolean
   onEdit: () => void
   onDelete: () => void
   onPause: () => void
@@ -22,7 +23,7 @@ function currency(n: number) {
   })
 }
 
-const CampaignRow = memo(function CampaignRow({ budget, cashflow, results, isNew, onEdit, onDelete, onPause, onSpendOverride }: Props) {
+const CampaignRow = memo(function CampaignRow({ budget, cashflow, results, isNew, showDragHandle, onEdit, onDelete, onPause, onSpendOverride }: Props) {
   const [editingSpend, setEditingSpend] = useState(false)
   const [spendInput, setSpendInput] = useState('')
 
@@ -60,6 +61,9 @@ const CampaignRow = memo(function CampaignRow({ budget, cashflow, results, isNew
     <div className="bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] rounded-xl px-4 py-3.5 hover:border-gray-300 dark:hover:border-[#333] hover:shadow-sm transition">
       {/* Row 1: name + actions */}
       <div className="flex items-center gap-2 mb-3">
+        {showDragHandle && (
+          <GripVertical size={14} className="text-gray-300 dark:text-gray-600 shrink-0 cursor-grab active:cursor-grabbing" />
+        )}
         <span className={`w-2 h-2 rounded-full shrink-0 ${dc.dot}`} />
         <p className="flex-1 text-sm font-medium text-gray-800 dark:text-gray-200 truncate min-w-0">{budget.campaign_name}</p>
         {isNew && (
