@@ -13,7 +13,6 @@ import type { AuditData, ClientAudit } from '@/lib/audit'
 import { useAuth } from '@/contexts/AuthContext'
 import { appCache, TTL } from '@/lib/appCache'
 import { deduplicateBudgets } from '@/lib/calculations'
-import ACCOUNT_MANAGERS from '@/data/account_managers.json'
 
 function countIncomplete(clients: OnboardingClient[]): number {
   return clients.filter(c => {
@@ -62,6 +61,7 @@ export default function DashboardPage() {
   const [showNewClient,    setShowNewClient]    = useState(false)
   const [auditClients,     setAuditClients]     = useState<ClientAudit[] | null>(null)
   const [auditLoading,     setAuditLoading]     = useState(true)
+  const [clientConfigs,    setClientConfigs]    = useState<Record<string, string>>({})
   type SortOrder = 'priority' | 'spend_high' | 'spend_low'
   const [sortOrder, setSortOrder] = useState<SortOrder>('priority')
 
@@ -74,6 +74,26 @@ export default function DashboardPage() {
         setOnboardingNames(clients.map(c => c.name).filter(Boolean))
       })
       .catch(() => {})
+  }, [])
+
+  // Fetch responsables de pauta desde la base de datos
+  useEffect(() => {
+    if (!isAdmin) return
+    fetch('/api/client-configs')
+      .then(r => r.ok ? r.json() : { configs: {} })
+      .then(data => { if (data.configs) setClientConfigs(data.configs) })
+      .catch(() => {})
+  }, [isAdmin])
+
+  const updateResponsable = useCallback(async (clientName: string, responsable: string) => {
+    const res = await fetch('/api/client-configs', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_name: clientName, responsable }),
+    })
+    if (res.ok) {
+      setClientConfigs(prev => ({ ...prev, [clientName]: responsable }))
+    }
   }, [])
 
   const fetchData = useCallback(async (force = false, silent = false) => {
@@ -381,7 +401,8 @@ export default function DashboardPage() {
         onClick={() => handleClientClick(client)}
         onRename={(newName) => handleRename(client, newName)}
         isAdmin={isAdmin}
-        responsable={(ACCOUNT_MANAGERS as Record<string, string>)[client]}
+        responsable={clientConfigs[client]}
+        onUpdateResponsable={isAdmin ? (val) => updateResponsable(client, val) : undefined}
       />
     )
   }, [monthBudgets, accounts, clientAccountIds, daysPassed, daysInMonth, handleClientClick, handleRename])

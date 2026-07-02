@@ -16,6 +16,7 @@ interface Props {
   onRename?: (newName: string) => Promise<void>
   isAdmin?: boolean
   responsable?: string
+  onUpdateResponsable?: (val: string) => Promise<void>
 }
 
 function currency(n: number) {
@@ -25,7 +26,7 @@ function currency(n: number) {
 }
 
 const DashboardCard = memo(function DashboardCard({
-  clientName, metaAccount, googleAccount, budgets, daysPassed, daysInMonth, onClick, onRename, isAdmin, responsable,
+  clientName, metaAccount, googleAccount, budgets, daysPassed, daysInMonth, onClick, onRename, isAdmin, responsable, onUpdateResponsable,
 }: Props) {
   const metaBudgets   = budgets.filter((b) => b.source === 'facebook'   && !b.paused)
   const googleBudgets = budgets.filter((b) => b.source === 'google' && !b.paused)
@@ -72,6 +73,12 @@ const DashboardCard = memo(function DashboardCard({
   const [saving, setSaving]       = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  // ── Responsable edit state ─────────────────────────────────────────────────
+  const [editingResp, setEditingResp]   = useState(false)
+  const [respInput, setRespInput]       = useState(responsable ?? '')
+  const [savingResp, setSavingResp]     = useState(false)
+  const respRef = useRef<HTMLInputElement>(null)
+
   const startRename = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     setNameInput(clientName)
@@ -104,6 +111,17 @@ const DashboardCard = memo(function DashboardCard({
     if (e.key === 'Enter') confirmRename()
     if (e.key === 'Escape') cancelRename()
   }, [confirmRename, cancelRename])
+
+  const saveResp = useCallback(async () => {
+    if (!onUpdateResponsable) return
+    setSavingResp(true)
+    try {
+      await onUpdateResponsable(respInput.trim())
+    } finally {
+      setSavingResp(false)
+      setEditingResp(false)
+    }
+  }, [onUpdateResponsable, respInput])
 
   return (
     <div
@@ -162,7 +180,49 @@ const DashboardCard = memo(function DashboardCard({
             {hasGoogle && (
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#4285F4] text-white">Google</span>
             )}
-            {isAdmin && responsable && (
+            {isAdmin && onUpdateResponsable && (
+              editingResp ? (
+                <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                  <input
+                    ref={respRef}
+                    value={respInput}
+                    onChange={e => setRespInput(e.target.value)}
+                    onKeyDown={e => {
+                      e.stopPropagation()
+                      if (e.key === 'Enter') saveResp()
+                      if (e.key === 'Escape') { setEditingResp(false); setRespInput(responsable ?? '') }
+                    }}
+                    disabled={savingResp}
+                    className="w-20 px-1.5 py-0.5 text-[10px] bg-white dark:bg-[#111] border border-violet-400 rounded text-gray-900 dark:text-gray-100 focus:outline-none"
+                    autoFocus
+                  />
+                  <button
+                    onClick={e => { e.stopPropagation(); saveResp() }}
+                    disabled={savingResp}
+                    className="p-0.5 rounded bg-violet-600 hover:bg-violet-700 text-white transition disabled:opacity-50"
+                  >
+                    <Check size={9} strokeWidth={3} />
+                  </button>
+                  <button
+                    onClick={e => { e.stopPropagation(); setEditingResp(false); setRespInput(responsable ?? '') }}
+                    disabled={savingResp}
+                    className="p-0.5 rounded bg-gray-200 dark:bg-[#2a2a2a] text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-[#333] transition disabled:opacity-50"
+                  >
+                    <X size={9} strokeWidth={3} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={e => { e.stopPropagation(); setRespInput(responsable ?? ''); setEditingResp(true); setTimeout(() => respRef.current?.select(), 30) }}
+                  className="text-[10px] text-gray-400 dark:text-gray-500 hover:text-violet-500 dark:hover:text-violet-400 transition group/resp flex items-center gap-0.5"
+                  title="Editar responsable"
+                >
+                  Pauta: {responsable || <span className="italic">—</span>}
+                  <Pencil size={9} className="opacity-0 group-hover/resp:opacity-100 transition-opacity" />
+                </button>
+              )
+            )}
+            {isAdmin && !onUpdateResponsable && responsable && (
               <span className="text-[10px] text-gray-400 dark:text-gray-500">Pauta: {responsable}</span>
             )}
           </div>
