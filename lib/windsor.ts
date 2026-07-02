@@ -23,6 +23,11 @@ interface RawRecord {
   source: string
   spend: number | null
   date: string
+  actions_onsite_conversion_messaging_conversation_started_7d?: number | string | null
+  actions_purchase?: number | string | null
+  actions_omni_purchase?: number | string | null
+  actions_lead?: number | string | null
+  actions_onsite_conversion_lead_grouped?: number | string | null
 }
 
 export type { AccountData }
@@ -63,7 +68,7 @@ async function fetchAccounts(
   url.searchParams.set('date_to', dateTo)
   const isFacebook = connectorUrl === WINDSOR_FACEBOOK
   const fields = isFacebook
-    ? 'campaign_id,campaign_name,adset_id,adset_name,account_id,account_name,source,spend,date'
+    ? 'campaign_id,campaign_name,adset_id,adset_name,account_id,account_name,source,spend,date,actions_onsite_conversion_messaging_conversation_started_7d,actions_purchase,actions_omni_purchase,actions_lead,actions_onsite_conversion_lead_grouped'
     : 'campaign_id,campaign_name,account_id,account_name,source,spend,date'
   url.searchParams.set('fields', fields)
   url.searchParams.set('_renderer', 'json')
@@ -122,11 +127,21 @@ async function fetchAccounts(
         campaign_name: r.campaign_name ?? '',
         spend:         0,
         today_spend:   0,
+        results:       0,
       })
     }
     const campEntry = campaignMap.get(campKey)!
     campEntry.spend += r.spend ?? 0
     if (r.date === dateTo) campEntry.today_spend = (campEntry.today_spend ?? 0) + (r.spend ?? 0)
+    const nv = (v: number | string | null | undefined) => {
+      if (v == null) return 0
+      const p = typeof v === 'string' ? parseFloat(v) : v
+      return isNaN(p) ? 0 : p
+    }
+    campEntry.results = (campEntry.results ?? 0)
+      + nv(r.actions_onsite_conversion_messaging_conversation_started_7d)
+      + nv(r.actions_purchase) + nv(r.actions_omni_purchase)
+      + nv(r.actions_lead) + nv(r.actions_onsite_conversion_lead_grouped)
 
     // Adset level (only when Windsor returns adset data)
     if (r.adset_id) {

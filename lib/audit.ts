@@ -2,6 +2,23 @@ import { getMetaDirectIdsFull, fetchMetaAuditRows, fetchMetaCampaignRows } from 
 
 const WINDSOR_FACEBOOK = 'https://connectors.windsor.ai/facebook'
 
+// Maps normalized Windsor account_name → Supabase client_name when Windsor uses
+// a different account_id than what's stored in Supabase budgets.
+const WINDSOR_NAME_MAP: Record<string, string> = {
+  'aires show': 'BROTE',
+}
+function normWindsorName(s: string) { return s.toLowerCase().trim() }
+
+function remapOverrides(rows: RawRow[], clientToId: Map<string, string>): RawRow[] {
+  return rows.map(r => {
+    if (!r.account_name) return r
+    const mapped = WINDSOR_NAME_MAP[normWindsorName(r.account_name)]
+    if (!mapped) return r
+    const supabaseId = clientToId.get(mapped)
+    return supabaseId ? { ...r, account_id: supabaseId } : r
+  })
+}
+
 // ── In-memory audit cache (15 min TTL) ─────────────────────────────────────────
 const _auditCache = new Map<string, { data: AuditData; ts: number }>()
 const AUDIT_TTL = 15 * 60 * 1000 // 15 minutes
@@ -144,7 +161,10 @@ async function fetchPeriod(
         const json = await res.json()
         let rows: RawRow[] = json.data ?? []
         if (windsorAllowed && windsorAllowed.size > 0) {
-          rows = rows.filter(r => r.account_id && windsorAllowed.has(r.account_id))
+          rows = rows.filter(r =>
+            (r.account_id && windsorAllowed.has(r.account_id)) ||
+            (r.account_name && !!WINDSOR_NAME_MAP[normWindsorName(r.account_name)])
+          )
         }
         return rows
       })()
@@ -540,12 +560,20 @@ export async function runAudit(
     ? fetchPeriod(fmt(monthStart), fmt(monthEnd), MSG_FIELDS, allowedIds)
     : Promise.resolve<RawRow[]>([])
 
-  const [recentRows, prevRows, momRows, monthMsgRows] = await Promise.all([
+  const [_rr, _pr, _mr, _mmr] = await Promise.all([
     fetchPeriod(fmt(recentFrom), fmt(recentTo), ACCOUNT_FIELDS, allowedIds),
     fetchPeriod(fmt(prevFrom),   fmt(prevTo),   ACCOUNT_FIELDS, allowedIds),
     fetchPeriod(fmt(momFrom),    fmt(momTo),    ACCOUNT_FIELDS, allowedIds),
     fetchMonthMsg,
   ])
+  // Remap Windsor name overrides (e.g. "Aires Show" → BROTE's Supabase account_id)
+  const clientToId = new Map<string, string>(
+    Object.entries(clientNames).map(([id, name]) => [name, id])
+  )
+  const recentRows   = remapOverrides(_rr,  clientToId)
+  const prevRows     = remapOverrides(_pr,  clientToId)
+  const momRows      = remapOverrides(_mr,  clientToId)
+  const monthMsgRows = remapOverrides(_mmr, clientToId)
 
   // Index prev and mom by account_id
   const prevMap = new Map<string, Metrics>()

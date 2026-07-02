@@ -14,6 +14,8 @@ interface Props {
   daysInMonth: number
   onClick?: () => void
   onRename?: (newName: string) => Promise<void>
+  isAdmin?: boolean
+  responsable?: string
 }
 
 function currency(n: number) {
@@ -23,7 +25,7 @@ function currency(n: number) {
 }
 
 const DashboardCard = memo(function DashboardCard({
-  clientName, metaAccount, googleAccount, budgets, daysPassed, daysInMonth, onClick, onRename,
+  clientName, metaAccount, googleAccount, budgets, daysPassed, daysInMonth, onClick, onRename, isAdmin, responsable,
 }: Props) {
   const metaBudgets   = budgets.filter((b) => b.source === 'facebook'   && !b.paused)
   const googleBudgets = budgets.filter((b) => b.source === 'google' && !b.paused)
@@ -159,6 +161,9 @@ const DashboardCard = memo(function DashboardCard({
             )}
             {hasGoogle && (
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#4285F4] text-white">Google</span>
+            )}
+            {isAdmin && responsable && (
+              <span className="text-[10px] text-gray-400 dark:text-gray-500">Pauta: {responsable}</span>
             )}
           </div>
         </div>

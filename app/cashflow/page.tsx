@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { RefreshCw, Plus, Pencil, AlertTriangle, Clock, Trash2, X, Sparkles, Download } from 'lucide-react'
+import { RefreshCw, Plus, Pencil, AlertTriangle, Trash2, X, Sparkles, Download } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import CampaignRow from '@/components/CampaignRow'
 import dynamic from 'next/dynamic'
@@ -34,12 +34,6 @@ function currency(n: number) {
   return n.toLocaleString('es-AR', {
     style: 'currency', currency: 'ARS', maximumFractionDigits: 0,
   })
-}
-
-function formatCountdown(s: number) {
-  const m = Math.floor(s / 60)
-  const sec = s % 60
-  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
 }
 
 function fuzzyMatch(a: string, b: string): boolean {
@@ -236,6 +230,23 @@ function campaignSpend(
   const accountTotalBudget = allAccountBudgets.reduce((s, b) => s + b.budget_total, 0)
   if (accountTotalBudget === 0) return allAccountBudgets.length > 0 ? account.spend / allAccountBudgets.length : 0
   return (budget.budget_total / accountTotalBudget) * account.spend
+}
+
+function campaignResults(
+  budget: BudgetEntry,
+  windsorCampaigns: CampaignSpend[],
+  windsorAdsets: CampaignSpend[]
+): number {
+  if (budget.source !== 'facebook') return 0
+  const norm = normName(budget.campaign_name)
+  const campMatch = windsorCampaigns.find(c =>
+    c.account_id === budget.account_id && c.source === budget.source && normName(c.campaign_name) === norm
+  )
+  if (campMatch?.results) return campMatch.results
+  const adsetMatch = windsorAdsets.find(c =>
+    c.account_id === budget.account_id && c.source === budget.source && normName(c.adset_name ?? '') === norm
+  )
+  return adsetMatch?.results ?? 0
 }
 
 // ── Full Windsor sync ────────────────────────────────────────────────────────────
@@ -1192,10 +1203,6 @@ export default function CashflowPage() {
           >
             {[2025, 2026, 2027].map((y) => <option key={y}>{y}</option>)}
           </select>
-          <div className="flex items-center gap-1.5 text-xs text-gray-500 border border-gray-200 dark:border-white/[0.08] rounded-xl px-3 py-2.5 bg-white dark:bg-[#161616] font-mono tabular-nums shadow-sm dark:shadow-none" title="Próxima sincronización automática">
-            <Clock size={12} className="shrink-0" />
-            {formatCountdown(countdown)}
-          </div>
           <button
             onClick={() => { fetchData(true); setCountdown(3600) }}
             disabled={loading}
@@ -1420,6 +1427,7 @@ export default function CashflowPage() {
                       key={b.campaign_id}
                       budget={b}
                       cashflow={cf}
+                      results={campaignResults(b, windsorCampaigns, windsorAdsets)}
                       isNew={newCampaignIds.has(b.campaign_id)}
                       onEdit={() => setModal({ entry: b, clientName: b.client_name, accountId: b.account_id, source: b.source as Source })}
                       onDelete={() => setCampaignDeleteConfirm(b)}

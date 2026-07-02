@@ -8,6 +8,7 @@ import { getDeviationClasses } from '@/lib/deviationColor'
 interface Props {
   budget: BudgetEntry
   cashflow: CashflowResult
+  results?: number
   isNew?: boolean
   onEdit: () => void
   onDelete: () => void
@@ -21,7 +22,7 @@ function currency(n: number) {
   })
 }
 
-const CampaignRow = memo(function CampaignRow({ budget, cashflow, isNew, onEdit, onDelete, onPause, onSpendOverride }: Props) {
+const CampaignRow = memo(function CampaignRow({ budget, cashflow, results, isNew, onEdit, onDelete, onPause, onSpendOverride }: Props) {
   const [editingSpend, setEditingSpend] = useState(false)
   const [spendInput, setSpendInput] = useState('')
 
@@ -85,7 +86,7 @@ const CampaignRow = memo(function CampaignRow({ budget, cashflow, isNew, onEdit,
       </div>
 
       {/* Row 2: metrics */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-3 mb-3 text-sm">
+      <div className={`grid gap-x-4 gap-y-3 mb-3 text-sm ${budget.source === 'facebook' ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-2 sm:grid-cols-4'}`}>
         <div>
           <p className="text-[11px] font-medium text-gray-400 dark:text-gray-500 mb-1">Presupuesto</p>
           <p className="font-semibold text-gray-900 dark:text-white tabular-nums">{currency(cashflow.budgetTotal)}</p>
@@ -148,6 +149,14 @@ const CampaignRow = memo(function CampaignRow({ budget, cashflow, isNew, onEdit,
             <span className="text-[11px] font-normal text-gray-400 dark:text-gray-500 ml-0.5">/día</span>
           </p>
         </div>
+        {budget.source === 'facebook' && (
+          <div>
+            <p className="text-[11px] font-medium text-gray-400 dark:text-gray-500 mb-1">Resultados</p>
+            <p className="font-semibold text-gray-900 dark:text-white tabular-nums">
+              {results != null && results > 0 ? results.toLocaleString() : <span className="text-gray-400 dark:text-gray-600">—</span>}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Row 3: progress bar */}

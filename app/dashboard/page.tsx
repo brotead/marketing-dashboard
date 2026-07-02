@@ -13,6 +13,7 @@ import type { AuditData, ClientAudit } from '@/lib/audit'
 import { useAuth } from '@/contexts/AuthContext'
 import { appCache, TTL } from '@/lib/appCache'
 import { deduplicateBudgets } from '@/lib/calculations'
+import ACCOUNT_MANAGERS from '@/data/account_managers.json'
 
 function countIncomplete(clients: OnboardingClient[]): number {
   return clients.filter(c => {
@@ -379,6 +380,8 @@ export default function DashboardPage() {
         daysInMonth={daysInMonth}
         onClick={() => handleClientClick(client)}
         onRename={(newName) => handleRename(client, newName)}
+        isAdmin={isAdmin}
+        responsable={(ACCOUNT_MANAGERS as Record<string, string>)[client]}
       />
     )
   }, [monthBudgets, accounts, clientAccountIds, daysPassed, daysInMonth, handleClientClick, handleRename])
