@@ -4,8 +4,6 @@ import { getWorkspaceCtx } from '@/lib/workspace'
 
 export const dynamic = 'force-dynamic'
 
-const EXCLUDED_EMAILS = ['brotead@gmail.com']
-
 // GET /api/client-configs → { configs: Record<string, string> }
 // Derives responsable from user_client_assignments + profiles.
 export async function GET() {
@@ -13,21 +11,17 @@ export async function GET() {
     const ctx = await getWorkspaceCtx()
     if (!ctx.userId) return NextResponse.json({ configs: {} })
 
-    // 1. All profiles in this workspace, excluding catch-all admin accounts
-    let profilesQuery = supabase
+    // 1. All profiles excluding the catch-all account that has every client
+    const { data: profiles, error: pErr } = await supabase
       .from('profiles')
       .select('id, name, email')
-      .not('email', 'in', `(${EXCLUDED_EMAILS.join(',')})`)
+      .neq('email', 'brotead@gmail.com')
 
-    if (ctx.workspaceId) {
-      profilesQuery = profilesQuery.eq('workspace_id', ctx.workspaceId)
-    }
-
-    const { data: profiles, error: pErr } = await profilesQuery
-    if (pErr || !profiles?.length) return NextResponse.json({ configs: {} })
+    if (pErr) return NextResponse.json({ configs: {} })
+    if (!profiles?.length) return NextResponse.json({ configs: {} })
 
     const profileMap = new Map<string, string>(
-      profiles.map(p => [p.id as string, ((p.name || p.email) as string)])
+      profiles.map(p => [p.id as string, (p.name || p.email) as string])
     )
     const userIds = profiles.map(p => p.id as string)
 
@@ -40,7 +34,7 @@ export async function GET() {
     if (aErr?.code === '42P01') return NextResponse.json({ configs: {} })
     if (aErr) return NextResponse.json({ configs: {} })
 
-    // First non-excluded user per client wins
+    // Build map: first non-excluded user per client wins
     const configs: Record<string, string> = {}
     for (const a of assignments ?? []) {
       if (!a.client_name || configs[a.client_name]) continue
