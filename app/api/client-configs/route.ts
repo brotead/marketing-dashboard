@@ -1,65 +1,55 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getWorkspaceCtx } from '@/lib/workspace'
 
 export const dynamic = 'force-dynamic'
 
+const EXCLUDED_EMAILS = ['brotead@gmail.com']
+
 // GET /api/client-configs → { configs: Record<string, string> }
+// Derives responsable from user_client_assignments + profiles.
 export async function GET() {
   try {
     const ctx = await getWorkspaceCtx()
     if (!ctx.userId) return NextResponse.json({ configs: {} })
 
-    const { data, error } = await supabase
-      .from('client_configs')
-      .select('client_name, responsable')
-      .or(
-        ctx.workspaceId
-          ? `workspace_id.eq.${ctx.workspaceId}`
-          : 'workspace_id.is.null'
-      )
+    // 1. All profiles in this workspace, excluding catch-all admin accounts
+    let profilesQuery = supabase
+      .from('profiles')
+      .select('id, name, email')
+      .not('email', 'in', `(${EXCLUDED_EMAILS.join(',')})`)
 
-    if (error?.code === '42P01') {
-      // Table doesn't exist yet — return empty gracefully
-      return NextResponse.json({ configs: {} })
+    if (ctx.workspaceId) {
+      profilesQuery = profilesQuery.eq('workspace_id', ctx.workspaceId)
     }
-    if (error) return NextResponse.json({ configs: {} })
 
+    const { data: profiles, error: pErr } = await profilesQuery
+    if (pErr || !profiles?.length) return NextResponse.json({ configs: {} })
+
+    const profileMap = new Map<string, string>(
+      profiles.map(p => [p.id as string, ((p.name || p.email) as string)])
+    )
+    const userIds = profiles.map(p => p.id as string)
+
+    // 2. All client assignments for those users
+    const { data: assignments, error: aErr } = await supabase
+      .from('user_client_assignments')
+      .select('user_id, client_name')
+      .in('user_id', userIds)
+
+    if (aErr?.code === '42P01') return NextResponse.json({ configs: {} })
+    if (aErr) return NextResponse.json({ configs: {} })
+
+    // First non-excluded user per client wins
     const configs: Record<string, string> = {}
-    for (const row of data ?? []) {
-      if (row.client_name && row.responsable) {
-        configs[row.client_name] = row.responsable
-      }
+    for (const a of assignments ?? []) {
+      if (!a.client_name || configs[a.client_name]) continue
+      const name = profileMap.get(a.user_id)
+      if (name) configs[a.client_name] = name
     }
+
     return NextResponse.json({ configs })
   } catch {
     return NextResponse.json({ configs: {} })
-  }
-}
-
-// PATCH /api/client-configs { client_name, responsable } → upsert
-export async function PATCH(req: NextRequest) {
-  try {
-    const ctx = await getWorkspaceCtx()
-    if (!ctx.isSuperAdmin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-
-    const { client_name, responsable } = await req.json()
-    if (!client_name) return NextResponse.json({ error: 'client_name required' }, { status: 400 })
-
-    const payload: Record<string, unknown> = { client_name, responsable: responsable || null }
-    if (ctx.workspaceId) payload.workspace_id = ctx.workspaceId
-
-    const { error } = await supabase
-      .from('client_configs')
-      .upsert(payload, { onConflict: 'client_name,workspace_id' })
-
-    if (error?.code === '42P01') {
-      return NextResponse.json({ error: 'Table not created yet. Run supabase_client_configs.sql first.' }, { status: 500 })
-    }
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-    return NextResponse.json({ ok: true })
-  } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 })
   }
 }

@@ -85,17 +85,6 @@ export default function DashboardPage() {
       .catch(() => {})
   }, [isAdmin])
 
-  const updateResponsable = useCallback(async (clientName: string, responsable: string) => {
-    const res = await fetch('/api/client-configs', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ client_name: clientName, responsable }),
-    })
-    if (res.ok) {
-      setClientConfigs(prev => ({ ...prev, [clientName]: responsable }))
-    }
-  }, [])
-
   const fetchData = useCallback(async (force = false, silent = false) => {
     if (force) {
       appCache.invalidateHard(`windsor-${year}-${month}`)
@@ -402,7 +391,6 @@ export default function DashboardPage() {
         onRename={(newName) => handleRename(client, newName)}
         isAdmin={isAdmin}
         responsable={clientConfigs[client]}
-        onUpdateResponsable={isAdmin ? (val) => updateResponsable(client, val) : undefined}
       />
     )
   }, [monthBudgets, accounts, clientAccountIds, daysPassed, daysInMonth, handleClientClick, handleRename])
