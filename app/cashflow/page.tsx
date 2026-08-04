@@ -293,7 +293,7 @@ async function autoSyncCampaigns(
       source:        prev.source,
       account_id:    prev.account_id,
       year, month,
-      budget_total:  0,
+      budget_total:  prev.budget_total,
       paused:        false,
     })
   }
