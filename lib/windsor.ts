@@ -53,9 +53,10 @@ async function fetchAccounts(
   const yesterday = new Date(today)
   yesterday.setDate(yesterday.getDate() - 1)
   // Show spend through yesterday to avoid partial-day figures.
-  // On the 1st of the month yesterday is still in the previous month, so fall back to today.
+  // On the 1st of the month yesterday falls in the previous month, causing dateFrom > dateTo.
+  // Fall back to today so Windsor returns valid data on the 1st.
   const dateTo = isCurrentMonth
-    ? yesterday.toISOString().split('T')[0]
+    ? (today.getDate() === 1 ? today : yesterday).toISOString().split('T')[0]
     : new Date(year, month, 0).toISOString().split('T')[0]
 
   const sevenDaysAgo = new Date(today)

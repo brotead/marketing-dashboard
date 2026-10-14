@@ -110,7 +110,7 @@ export default function DashboardPage() {
       const windsorIds = new Set(windsorAccounts.filter(a => a.source === 'facebook').map(a => a.account_id))
       const metaOnlyAccounts: AccountData[] = (metaApiJson.accounts ?? []).filter((a: AccountData) => !windsorIds.has(a.account_id))
       setAccounts([...windsorAccounts, ...metaOnlyAccounts])
-      setBudgets(bs)
+      setBudgets(Array.isArray(bs) ? bs : [])
 
       // ── Monthly rollover ────────────────────────────────────────────────────
       // If clients exist in previous months but have no entries in the current

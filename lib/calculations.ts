@@ -19,8 +19,8 @@ export function deduplicateBudgets(entries: BudgetEntry[]): BudgetEntry[] {
     if (!existing) {
       seen.set(key, b)
     } else {
-      const bIsAuto        = b.campaign_id.startsWith('auto_')
-      const existingIsAuto = existing.campaign_id.startsWith('auto_')
+      const bIsAuto        = b.campaign_id.startsWith('auto_') || b.campaign_id.startsWith('co_')
+      const existingIsAuto = existing.campaign_id.startsWith('auto_') || existing.campaign_id.startsWith('co_')
       if (!bIsAuto && existingIsAuto) {
         seen.set(key, b)
       } else if (bIsAuto === existingIsAuto && b.budget_total > existing.budget_total) {

@@ -63,12 +63,19 @@ export async function POST(req: NextRequest) {
     // 2. Find which clients already have entries this month
     const prevClients = Array.from(new Set(prevEntries.map(e => e.client_name)))
 
-    const { data: existingEntries } = await client
+    let existsQ = client
       .from('budgets')
       .select('client_name')
       .eq('year', targetYear)
       .eq('month', targetMonth)
       .in('client_name', prevClients)
+
+    // Scope to workspace so entries from other workspaces don't block the rollover
+    if (ctx.workspaceId) {
+      existsQ = existsQ.or(`workspace_id.eq.${ctx.workspaceId},workspace_id.is.null`)
+    }
+
+    const { data: existingEntries } = await existsQ
 
     const clientsWithCurrentMonth = new Set((existingEntries ?? []).map(e => e.client_name))
     const clientsToRoll = prevClients.filter(c => !clientsWithCurrentMonth.has(c))
