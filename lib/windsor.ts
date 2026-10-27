@@ -563,14 +563,17 @@ const DISCOVER_TTL = 24 * 60 * 60 * 1000  // 24h
 
 async function discoverAllAccounts(
   connectorUrl: string,
-  sourceLabel: string
+  sourceLabel: string,
+  force = false
 ): Promise<Map<string, { account_id: string; account_name: string }>> {
   const apiKey = process.env.WINDSOR_API_KEY
   if (!apiKey) return new Map()
 
   const cacheKey = sourceLabel
-  const cached = _discoverCache.get(cacheKey)
-  if (cached && Date.now() - cached.ts < DISCOVER_TTL) return cached.data
+  if (!force) {
+    const cached = _discoverCache.get(cacheKey)
+    if (cached && Date.now() - cached.ts < DISCOVER_TTL) return cached.data
+  }
 
   const today = new Date()
   const from  = new Date(today)
@@ -627,8 +630,8 @@ export async function fetchWindsorAccounts(
       console.error('[Windsor] Google connector error (ignorado):', e.message)
       return EMPTY_FETCH
     }),
-    discoverAllAccounts(WINDSOR_FACEBOOK, 'facebook').catch(() => new Map()),
-    discoverAllAccounts(WINDSOR_GOOGLE,   'google'  ).catch(() => new Map()),
+    discoverAllAccounts(WINDSOR_FACEBOOK, 'facebook', force).catch(() => new Map()),
+    discoverAllAccounts(WINDSOR_GOOGLE,   'google',   force).catch(() => new Map()),
   ])
 
   // Merge discovery: add any account that has no spend this month (spend=0)
