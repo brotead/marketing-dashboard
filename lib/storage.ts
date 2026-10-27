@@ -23,11 +23,20 @@ function applyAccess(query: any, ctx: WorkspaceCtx, clientCol = 'client_name'): 
 // ── Budgets ────────────────────────────────────────────────────────────────────
 
 export async function getBudgets(ctx: WorkspaceCtx): Promise<BudgetEntry[]> {
-  const q = applyAccess(supabase.from('budgets').select('*').limit(50000), ctx)
-  if (!q) return []
-  const { data, error } = await q
-  if (error) throw new Error(error.message)
-  return data ?? []
+  const PAGE = 1000
+  const all: BudgetEntry[] = []
+  let from = 0
+  while (true) {
+    const q = applyAccess(supabase.from('budgets').select('*').range(from, from + PAGE - 1), ctx)
+    if (!q) return []
+    const { data, error } = await q
+    if (error) throw new Error(error.message)
+    if (!data || data.length === 0) break
+    all.push(...data)
+    if (data.length < PAGE) break
+    from += PAGE
+  }
+  return all
 }
 
 export async function upsertBudget(entry: BudgetEntry, ctx: WorkspaceCtx): Promise<void> {
