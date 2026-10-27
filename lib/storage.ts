@@ -24,25 +24,28 @@ function applyAccess(query: any, ctx: WorkspaceCtx, clientCol = 'client_name'): 
 
 export async function getBudgets(ctx: WorkspaceCtx): Promise<BudgetEntry[]> {
   const PAGE = 1000
-  const base = applyAccess(supabase.from('budgets').select('*'), ctx)
-  if (!base) return []
+  // Supabase query builders are mutable — create a fresh one per page
+  const makeQ = (from: number) =>
+    applyAccess(supabase.from('budgets').select('*'), ctx)?.range(from, from + PAGE - 1)
+
+  const q0 = makeQ(0)
+  if (!q0) return []
 
   // Fetch first two pages in parallel — one round-trip for tables ≤ 2000 rows
-  const [r0, r1] = await Promise.all([
-    base.range(0, PAGE - 1),
-    base.range(PAGE, PAGE * 2 - 1),
-  ])
+  const [r0, r1] = await Promise.all([q0, makeQ(PAGE)])
   if (r0.error) throw new Error(r0.error.message)
   const page0 = r0.data ?? []
   if (page0.length < PAGE) return page0
 
-  const page1 = r1.error ? [] : (r1.data ?? [])
+  const page1 = r1?.error ? [] : (r1?.data ?? [])
   const all = [...page0, ...page1]
 
   // Continue if needed (> 2000 rows)
   let from = PAGE * 2
   while (page1.length === PAGE) {
-    const { data, error } = await base.range(from, from + PAGE - 1)
+    const q = makeQ(from)
+    if (!q) break
+    const { data, error } = await q
     if (error || !data || data.length === 0) break
     all.push(...data)
     if (data.length < PAGE) break
