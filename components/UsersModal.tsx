@@ -193,25 +193,25 @@ export default function UsersModal({ onClose }: Props) {
     setAssigningUserId(uid)
     setClientSearch('')
 
-    // Already loaded this user's assignments into draft
-    if (draft.assignments[uid]) return
-
     setAssignLoading(true)
     try {
-      const [allRes, userRes] = await Promise.all([
-        fetch('/api/user-clients').then(r => r.json()),
-        fetch(`/api/user-clients?userId=${uid}`).then(r => r.json()),
-      ])
+      // Always re-fetch allClients so newly created clients appear immediately.
+      // Only skip the per-user assignment fetch if already loaded into draft.
+      const allRes = await fetch('/api/user-clients').then(r => r.json())
       setAllClients(allRes.clients ?? [])
-      if (userRes.tableExists === false) {
-        setTableExists(false)
-      } else {
-        setTableExists(true)
-        const assigned: string[] = userRes.clients ?? []
-        setDraft(prev => ({
-          ...prev,
-          assignments: { ...prev.assignments, [uid]: { original: assigned, current: [...assigned] } }
-        }))
+
+      if (!draft.assignments[uid]) {
+        const userRes = await fetch(`/api/user-clients?userId=${uid}`).then(r => r.json())
+        if (userRes.tableExists === false) {
+          setTableExists(false)
+        } else {
+          setTableExists(true)
+          const assigned: string[] = userRes.clients ?? []
+          setDraft(prev => ({
+            ...prev,
+            assignments: { ...prev.assignments, [uid]: { original: assigned, current: [...assigned] } }
+          }))
+        }
       }
     } finally {
       setAssignLoading(false)
