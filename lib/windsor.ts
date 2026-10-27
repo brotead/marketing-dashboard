@@ -583,7 +583,7 @@ async function discoverAllAccounts(
   url.searchParams.set('api_key', apiKey)
   url.searchParams.set('date_from', from.toISOString().split('T')[0])
   url.searchParams.set('date_to', today.toISOString().split('T')[0])
-  url.searchParams.set('fields', 'account_id,account_name,source')
+  url.searchParams.set('fields', 'account_id,account_name,source,spend')
   url.searchParams.set('_renderer', 'json')
   url.searchParams.set('_limit', '50000')
 
