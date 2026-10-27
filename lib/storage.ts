@@ -23,7 +23,7 @@ function applyAccess(query: any, ctx: WorkspaceCtx, clientCol = 'client_name'): 
 // ── Budgets ────────────────────────────────────────────────────────────────────
 
 export async function getBudgets(ctx: WorkspaceCtx): Promise<BudgetEntry[]> {
-  const q = applyAccess(supabase.from('budgets').select('*'), ctx)
+  const q = applyAccess(supabase.from('budgets').select('*').limit(50000), ctx)
   if (!q) return []
   const { data, error } = await q
   if (error) throw new Error(error.message)
