@@ -102,7 +102,7 @@ export default function DashboardPage() {
           return r.json()
         }, TTL.HOUR),
         appCache.fetch('budgets', () =>
-          fetch('/api/budgets').then(r => r.json()), TTL.MIN1),
+          fetch('/api/budgets').then(r => r.json()), TTL.MIN5),
         appCache.fetch('meta-accounts', () =>
           fetch('/api/meta/accounts').then(r => r.ok ? r.json() : { accounts: [] }).catch(() => ({ accounts: [] })), TTL.MIN15),
       ])
@@ -575,7 +575,7 @@ export default function DashboardPage() {
           <DashboardSidebar
             auditClients={auditClients}
             activeClients={activeClients}
-            loading={auditLoading}
+            loading={auditLoading || loading}
             month={month}
             year={year}
           />

@@ -24,14 +24,26 @@ function applyAccess(query: any, ctx: WorkspaceCtx, clientCol = 'client_name'): 
 
 export async function getBudgets(ctx: WorkspaceCtx): Promise<BudgetEntry[]> {
   const PAGE = 1000
-  const all: BudgetEntry[] = []
-  let from = 0
-  while (true) {
-    const q = applyAccess(supabase.from('budgets').select('*').range(from, from + PAGE - 1), ctx)
-    if (!q) return []
-    const { data, error } = await q
-    if (error) throw new Error(error.message)
-    if (!data || data.length === 0) break
+  const base = applyAccess(supabase.from('budgets').select('*'), ctx)
+  if (!base) return []
+
+  // Fetch first two pages in parallel — one round-trip for tables ≤ 2000 rows
+  const [r0, r1] = await Promise.all([
+    base.range(0, PAGE - 1),
+    base.range(PAGE, PAGE * 2 - 1),
+  ])
+  if (r0.error) throw new Error(r0.error.message)
+  const page0 = r0.data ?? []
+  if (page0.length < PAGE) return page0
+
+  const page1 = r1.error ? [] : (r1.data ?? [])
+  const all = [...page0, ...page1]
+
+  // Continue if needed (> 2000 rows)
+  let from = PAGE * 2
+  while (page1.length === PAGE) {
+    const { data, error } = await base.range(from, from + PAGE - 1)
+    if (error || !data || data.length === 0) break
     all.push(...data)
     if (data.length < PAGE) break
     from += PAGE
