@@ -10,6 +10,13 @@ export type WorkspaceCtx = {
   assignedClients: string[] | null  // null = see all (admin), [...] = filter to these only
 }
 
+const EMPTY_CTX: WorkspaceCtx = { workspaceId: null, userId: null, role: null, isSuperAdmin: false, assignedClients: null }
+
+// Server-side cache: eliminates repeated auth/profile/assignment queries when
+// multiple API routes are called in the same page load (e.g. 6 parallel prefetches).
+const _ctxCache = new Map<string, { ctx: WorkspaceCtx; ts: number }>()
+const CTX_TTL = 60_000
+
 export async function getWorkspaceCtx(): Promise<WorkspaceCtx> {
   try {
     const cookieStore = cookies()
@@ -24,43 +31,47 @@ export async function getWorkspaceCtx(): Promise<WorkspaceCtx> {
       }
     )
 
+    // Read session from cookie (no network call) — gives us user ID for cache lookup
+    const { data: { session } } = await authClient.auth.getSession()
+    const cachedId = session?.user?.id
+    if (cachedId) {
+      const hit = _ctxCache.get(cachedId)
+      if (hit && Date.now() - hit.ts < CTX_TTL) return hit.ctx
+    }
+
+    // Cache miss — verify JWT with server (one network call)
     const { data: { user } } = await authClient.auth.getUser()
-    if (!user) return { workspaceId: null, userId: null, role: null, isSuperAdmin: false, assignedClients: null }
+    if (!user) return EMPTY_CTX
 
-    const { data } = await adminClient
-      .from('profiles')
-      .select('workspace_id, role, id')
-      .eq('id', user.id)
-      .single()
+    // Fetch profile + assignments in parallel (was sequential: 2 round-trips → 1)
+    const [profileRes, assignRes] = await Promise.all([
+      adminClient.from('profiles').select('workspace_id, role, id').eq('id', user.id).single(),
+      adminClient.from('user_client_assignments').select('client_name').eq('user_id', user.id),
+    ])
 
-    const role = (data?.role ?? null) as WorkspaceCtx['role']
+    const role = (profileRes.data?.role ?? null) as WorkspaceCtx['role']
     const isSuperAdmin = role === 'super_admin'
 
-    // Admins see all clients; non-admins only see their assigned clients
     let assignedClients: string[] | null = null
     if (!isSuperAdmin) {
-      const { data: assignments, error: assignErr } = await adminClient
-        .from('user_client_assignments')
-        .select('client_name')
-        .eq('user_id', user.id)
-
-      if (assignErr?.code === '42P01') {
-        // Table doesn't exist yet — degrade gracefully, show all clients
-        assignedClients = null
+      if (assignRes.error?.code === '42P01') {
+        assignedClients = null  // table not created yet — degrade gracefully
       } else {
-        assignedClients = (assignments ?? []).map((a: { client_name: string }) => a.client_name)
+        assignedClients = (assignRes.data ?? []).map((a: { client_name: string }) => a.client_name)
       }
     }
 
-    return {
-      workspaceId: (data?.workspace_id as string | null) ?? null,
+    const ctx: WorkspaceCtx = {
+      workspaceId: (profileRes.data?.workspace_id as string | null) ?? null,
       userId: user.id,
       role,
       isSuperAdmin,
       assignedClients,
     }
+    _ctxCache.set(user.id, { ctx, ts: Date.now() })
+    return ctx
   } catch {
-    return { workspaceId: null, userId: null, role: null, isSuperAdmin: false, assignedClients: null }
+    return EMPTY_CTX
   }
 }
 
