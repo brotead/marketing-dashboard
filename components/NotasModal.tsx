@@ -27,7 +27,7 @@ const COLS: {
 }[] = [
   {
     key: 'pendiente',
-    label: 'Pendiente',
+    label: 'YO',
     accent: '#f59e0b',
     ring: 'ring-amber-400/60',
     cardBorder: 'border-l-amber-400',
@@ -36,7 +36,7 @@ const COLS: {
   },
   {
     key: 'en_curso',
-    label: 'En curso',
+    label: 'Interno',
     accent: '#3b82f6',
     ring: 'ring-blue-400/60',
     cardBorder: 'border-l-blue-500',
@@ -45,7 +45,7 @@ const COLS: {
   },
   {
     key: 'hecho',
-    label: 'Hecho',
+    label: 'Cliente',
     accent: '#10b981',
     ring: 'ring-emerald-400/60',
     cardBorder: 'border-l-emerald-500',
