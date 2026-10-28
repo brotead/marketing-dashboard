@@ -420,7 +420,7 @@ export default function DashboardPage() {
         {/* Notas — centered in header relative to the full row */}
         <button
           onClick={() => setShowNotas(true)}
-          className="hidden sm:flex items-center gap-2 absolute left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-white/[0.1] text-gray-600 dark:text-gray-300 text-sm font-medium shadow-sm hover:shadow-md hover:border-gray-300 dark:hover:border-white/20 transition-all duration-150"
+          className="hidden sm:flex items-center gap-2 absolute left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-semibold shadow-lg shadow-violet-500/30 hover:shadow-violet-500/50 hover:scale-105 active:scale-100 transition-all duration-200"
         >
           <StickyNote size={14} />
           Notas
