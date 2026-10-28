@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { RefreshCw, AlertCircle, Plus } from 'lucide-react'
+import { RefreshCw, AlertCircle, Plus, StickyNote } from 'lucide-react'
 import DashboardCard from '@/components/DashboardCard'
 import DashboardSidebar from '@/components/DashboardSidebar'
 import NewClientModal from '@/components/NewClientModal'
+import NotasModal from '@/components/NotasModal'
 import type { AccountData, BudgetEntry } from '@/lib/types'
 import { checklistProgress, trackingProgress } from '@/lib/onboarding'
 import type { OnboardingClient } from '@/lib/onboarding'
@@ -59,6 +60,7 @@ export default function DashboardPage() {
     return Array.isArray(cached) ? countIncomplete(cached) : 0
   })
   const [showNewClient,    setShowNewClient]    = useState(false)
+  const [showNotas,        setShowNotas]        = useState(false)
   const [auditClients,     setAuditClients]     = useState<ClientAudit[] | null>(null)
   const [auditLoading,     setAuditLoading]     = useState(true)
   const [clientConfigs,    setClientConfigs]    = useState<Record<string, string>>({})
@@ -397,8 +399,10 @@ export default function DashboardPage() {
 
   return (
     <div>
+      <NotasModal open={showNotas} onClose={() => setShowNotas(false)} />
+
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+      <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Dashboard General</h1>
           <div className="flex items-center gap-3 mt-1.5 flex-wrap">
@@ -413,6 +417,15 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
+        {/* Notas — centered in header relative to the full row */}
+        <button
+          onClick={() => setShowNotas(true)}
+          className="hidden sm:flex items-center gap-2 absolute left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-white/[0.1] text-gray-600 dark:text-gray-300 text-sm font-medium shadow-sm hover:shadow-md hover:border-gray-300 dark:hover:border-white/20 transition-all duration-150"
+        >
+          <StickyNote size={14} />
+          Notas
+        </button>
+
         <div className="flex items-center gap-2 flex-wrap">
           <select
             className="border border-gray-200 dark:border-white/[0.08] rounded-xl px-3 py-2.5 text-sm bg-white dark:bg-[#161616] text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all duration-150 cursor-pointer shadow-sm dark:shadow-none"
