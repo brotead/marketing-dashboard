@@ -7,6 +7,7 @@ import DashboardCard from '@/components/DashboardCard'
 import DashboardSidebar from '@/components/DashboardSidebar'
 import NewClientModal from '@/components/NewClientModal'
 import NotasModal from '@/components/NotasModal'
+import ClientDetailModal from '@/components/ClientDetailModal'
 import type { AccountData, BudgetEntry } from '@/lib/types'
 import { checklistProgress, trackingProgress } from '@/lib/onboarding'
 import type { OnboardingClient } from '@/lib/onboarding'
@@ -61,6 +62,7 @@ export default function DashboardPage() {
   })
   const [showNewClient,    setShowNewClient]    = useState(false)
   const [showNotas,        setShowNotas]        = useState(false)
+  const [selectedClient,   setSelectedClient]   = useState<string | null>(null)
   const [auditClients,     setAuditClients]     = useState<ClientAudit[] | null>(null)
   const [auditLoading,     setAuditLoading]     = useState(true)
   const [clientConfigs,    setClientConfigs]    = useState<Record<string, string>>({})
@@ -336,6 +338,10 @@ export default function DashboardPage() {
   )
 
   const handleClientClick = useCallback((client: string) => {
+    setSelectedClient(client)
+  }, [])
+
+  const handleCashflow = useCallback((client: string) => {
     const cb = monthBudgets.filter(b => b.client_name === client)
     const source = cb.find(b => b.source === 'facebook') ? 'facebook' : 'google'
     router.push(`/cashflow?client=${encodeURIComponent(client)}&source=${source}`)
@@ -400,6 +406,36 @@ export default function DashboardPage() {
   return (
     <div>
       <NotasModal open={showNotas} onClose={() => setShowNotas(false)} />
+
+      {/* Client detail modal */}
+      {selectedClient && (() => {
+        const clientBudgets = deduplicateBudgets(monthBudgets.filter(b => b.client_name === selectedClient))
+        const { metaIds = [], googleIds = [] } = clientAccountIds[selectedClient] ?? {}
+        const metaAccounts   = accounts.filter(a => a.source === 'facebook' && metaIds.includes(a.account_id))
+        const googleAccounts = accounts.filter(a => a.source === 'google'   && googleIds.includes(a.account_id))
+        const merge = (list: AccountData[], src: string, name: string): AccountData | undefined => {
+          if (list.length === 0) return undefined
+          if (list.length === 1) return list[0]
+          return { account_id: list[0].account_id, account_name: name, source: src,
+            spend: list.reduce((s, a) => s + a.spend, 0),
+            recent_spend: list.reduce((s, a) => s + (a.recent_spend ?? 0), 0),
+            campaign_count: list.reduce((s, a) => s + (a.campaign_count ?? 0), 0) }
+        }
+        return (
+          <ClientDetailModal
+            clientName={selectedClient}
+            metaAccount={merge(metaAccounts, 'facebook', selectedClient)}
+            googleAccount={merge(googleAccounts, 'google', selectedClient)}
+            budgets={clientBudgets}
+            daysPassed={daysPassed}
+            daysInMonth={daysInMonth}
+            audit={auditClients?.find(a => a.client_name === selectedClient) ?? null}
+            responsable={clientConfigs[selectedClient]}
+            onClose={() => setSelectedClient(null)}
+            onCashflow={() => { setSelectedClient(null); handleCashflow(selectedClient) }}
+          />
+        )
+      })()}
 
       {/* Header */}
       <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
