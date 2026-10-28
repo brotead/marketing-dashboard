@@ -578,6 +578,8 @@ export default function DashboardPage() {
             loading={auditLoading || loading}
             month={month}
             year={year}
+            monthBudgets={monthBudgets}
+            clientMetrics={clientMetrics}
           />
         </div>
       </div>

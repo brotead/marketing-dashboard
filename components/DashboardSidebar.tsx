@@ -1,17 +1,10 @@
 'use client'
 
 import { memo, useMemo } from 'react'
-import { TrendingDown, TrendingUp, AlertTriangle } from 'lucide-react'
 import type { ClientAudit } from '@/lib/audit'
+import type { BudgetEntry } from '@/lib/types'
 
-// ── Types ────────────────────────────────────────────────────────────────────
-
-interface DashAlert {
-  client:   string
-  metric:   'CTR' | 'CPA' | 'Inversión'
-  change:   number   // signed %, negative = drop
-  severity: number   // abs, for sorting
-}
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Props {
   auditClients:  ClientAudit[] | null
@@ -19,19 +12,33 @@ interface Props {
   loading:       boolean
   month:         number
   year:          number
+  monthBudgets:  BudgetEntry[]
+  clientMetrics: Record<string, { spend: number; deviation: number }>
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+interface Segment {
+  value: number
+  color: string
+  label: string
+  fmt?: string
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 const MONTHS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+const RANK_BG = ['bg-violet-600', 'bg-blue-600', 'bg-cyan-600']
 
 function currency(n: number) {
   return n.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 })
 }
 
-const RANK_BG = ['bg-violet-600', 'bg-blue-600', 'bg-cyan-600']
+function fmtBudget(n: number) {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}k`
+  return currency(n)
+}
 
-// ── Sub-widgets ───────────────────────────────────────────────────────────────
+// ── Shells ────────────────────────────────────────────────────────────────────
 
 function WidgetShell({ title, sub, children }: { title: string; sub: string; children: React.ReactNode }) {
   return (
@@ -45,65 +52,104 @@ function WidgetShell({ title, sub, children }: { title: string; sub: string; chi
   )
 }
 
-function AlertasList({ alerts, month, year }: { alerts: DashAlert[]; month: number; year: number }) {
-  const label = `${MONTHS[month - 1]} ${year}`
+// ── Donut chart — pure SVG, no deps ──────────────────────────────────────────
 
-  if (alerts.length === 0) {
-    return (
-      <p className="text-xs text-gray-400 dark:text-gray-600 py-2">Sin anomalías detectadas este mes.</p>
-    )
+function DonutChart({ segments }: { segments: Segment[] }) {
+  const total = segments.reduce((s, g) => s + g.value, 0)
+  if (total === 0) {
+    return <p className="text-xs text-gray-400 dark:text-gray-600 py-1">Sin datos</p>
   }
 
-  return (
-    <div className="divide-y divide-gray-50 dark:divide-white/[0.04]">
-      {alerts.map((a, i) => {
-        const isHigh = a.severity > 30
-        const dotCls = isHigh ? 'bg-red-500' : 'bg-amber-400'
-        const badgeCls = isHigh
-          ? 'bg-red-500/10 text-red-500 dark:text-red-400'
-          : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-        const dropped = a.change < 0
-        const dir = a.metric === 'CPA'
-          ? (a.change > 0 ? 'subió' : 'bajó')
-          : (dropped ? 'cayó' : 'subió')
-        const Icon = (a.metric === 'CPA' && a.change > 0) || (a.metric !== 'CPA' && !dropped)
-          ? TrendingUp : TrendingDown
+  const r = 30, cx = 40, cy = 40
+  const C = 2 * Math.PI * r  // ≈ 188.5
 
-        return (
-          <div key={i} className="flex items-start gap-2.5 py-2.5 first:pt-0 last:pb-0">
-            <div className="flex items-center gap-1.5 mt-1 shrink-0">
-              <span className={`w-1.5 h-1.5 rounded-full ${dotCls}`} />
-              <AlertTriangle size={11} className={isHigh ? 'text-red-400' : 'text-amber-400'} />
+  let cum = 0
+  const arcs = segments.map(seg => {
+    const len = (seg.value / total) * C
+    const arc = { ...seg, len, offset: C / 4 - cum }
+    cum += len
+    return arc
+  })
+
+  return (
+    <div className="flex flex-col items-center gap-3">
+      <svg width="80" height="80" viewBox="0 0 80 80">
+        {/* Track */}
+        <circle
+          cx={cx} cy={cy} r={r} fill="none" strokeWidth={12}
+          stroke="currentColor" className="text-gray-100 dark:text-white/[0.06]"
+        />
+        {/* Segments */}
+        {arcs.map((arc, i) => (
+          <circle
+            key={i}
+            cx={cx} cy={cy} r={r}
+            fill="none"
+            stroke={arc.color}
+            strokeWidth={12}
+            strokeDasharray={`${arc.len} ${C}`}
+            strokeDashoffset={arc.offset}
+          />
+        ))}
+      </svg>
+
+      <div className="w-full space-y-1.5">
+        {arcs.map((arc, i) => (
+          <div key={i} className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: arc.color }} />
+              <span className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{arc.label}</span>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-1 mb-0.5">
-                <span className="text-[11px] font-bold text-gray-800 dark:text-gray-100 truncate uppercase tracking-wide">
-                  {a.client}
-                </span>
-                <span className="text-[10px] text-gray-300 dark:text-gray-700 shrink-0">{label}</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Icon size={10} className={isHigh ? 'text-red-400' : 'text-amber-400'} />
-                <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                  {a.metric} {dir} {Math.abs(a.change).toFixed(0)}%
-                </p>
-              </div>
-              <span className={`inline-block mt-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${badgeCls}`}>
-                {isHigh ? 'Impacto alto' : 'Impacto medio'}
-              </span>
-            </div>
+            <span className="text-[11px] font-semibold text-gray-700 dark:text-gray-200 tabular-nums shrink-0">
+              {arc.fmt ?? arc.value}
+            </span>
           </div>
-        )
-      })}
+        ))}
+      </div>
     </div>
   )
 }
+
+// ── Skeletons ─────────────────────────────────────────────────────────────────
+
+function SkeletonDonut() {
+  return (
+    <div className="flex flex-col items-center gap-3">
+      <div className="w-20 h-20 rounded-full bg-gray-100 dark:bg-white/[0.05] animate-pulse" />
+      <div className="w-full space-y-2">
+        {[1, 2, 3].map(i => (
+          <div key={i} className="flex justify-between gap-2">
+            <div className="h-2.5 bg-gray-100 dark:bg-white/[0.05] rounded animate-pulse flex-1" />
+            <div className="h-2.5 bg-gray-100 dark:bg-white/[0.05] rounded animate-pulse w-8 shrink-0" />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function SkeletonList({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-start gap-2.5">
+          <div className="w-4 h-4 bg-gray-100 dark:bg-white/[0.05] rounded-full animate-pulse shrink-0 mt-1" />
+          <div className="flex-1 space-y-1.5">
+            <div className="h-2.5 bg-gray-100 dark:bg-white/[0.05] rounded animate-pulse w-3/4" />
+            <div className="h-2 bg-gray-100 dark:bg-white/[0.05] rounded animate-pulse w-1/2" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── Top 3 list ────────────────────────────────────────────────────────────────
 
 function Top3List({ clients }: { clients: ClientAudit[] }) {
   if (clients.length === 0) {
     return <p className="text-xs text-gray-400 dark:text-gray-600 py-2">Sin clientes de mensajes con datos.</p>
   }
-
   return (
     <div className="divide-y divide-gray-50 dark:divide-white/[0.04]">
       {clients.map((c, i) => (
@@ -126,72 +172,43 @@ function Top3List({ clients }: { clients: ClientAudit[] }) {
   )
 }
 
-function SkeletonWidget({ rows = 3 }: { rows?: number }) {
-  return (
-    <div className="space-y-3">
-      {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="flex items-start gap-2.5">
-          <div className="w-4 h-4 bg-gray-100 dark:bg-white/[0.05] rounded-full animate-pulse shrink-0 mt-1" />
-          <div className="flex-1 space-y-1.5">
-            <div className="h-2.5 bg-gray-100 dark:bg-white/[0.05] rounded animate-pulse w-3/4" />
-            <div className="h-2 bg-gray-100 dark:bg-white/[0.05] rounded animate-pulse w-1/2" />
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ── Main sidebar ──────────────────────────────────────────────────────────────
+// ── Main component ────────────────────────────────────────────────────────────
 
 const DashboardSidebar = memo(function DashboardSidebar({
-  auditClients, activeClients, loading, month, year,
+  auditClients, activeClients, loading, month, year, monthBudgets, clientMetrics,
 }: Props) {
   const activeSet = useMemo(() => new Set(activeClients), [activeClients])
 
-  const alerts = useMemo<DashAlert[]>(() => {
-    if (!auditClients) return []
-    const raw: DashAlert[] = []
-
-    for (const c of auditClients) {
-      if (!activeSet.has(c.client_name)) continue
-
-      // CTR drop — MOM preferred, fallback to recent-vs-prev
-      const ctrChange = c.mom_ctr_change ?? c.ctr_change
-      if (ctrChange !== null && ctrChange < -5) {
-        raw.push({ client: c.client_name, metric: 'CTR', change: ctrChange, severity: Math.abs(ctrChange) })
-      }
-
-      // CPA rise — messaging CPA, MOM preferred
-      const cpaChange = c.mom_cpl_change ?? c.cpl_change
-      if (c.has_cpl && cpaChange !== null && cpaChange > 8) {
-        raw.push({ client: c.client_name, metric: 'CPA', change: cpaChange, severity: cpaChange })
-      }
-
-      // CPA rise — purchase CPA, MOM preferred
-      const cpaPurchChange = c.mom_cpa_purchases_change ?? c.cpa_purchases_change
-      if (c.cpa_purchases > 0 && cpaPurchChange !== null && cpaPurchChange > 8) {
-        raw.push({ client: c.client_name, metric: 'CPA', change: cpaPurchChange, severity: cpaPurchChange })
-      }
-
-      // Inversión — recent 7d vs prev 7d
-      if (c.spend_change !== null && Math.abs(c.spend_change) > 10) {
-        raw.push({ client: c.client_name, metric: 'Inversión', change: c.spend_change, severity: Math.abs(c.spend_change) })
-      }
+  // Pacing status: how many clients are on-track / under / over / no-spend
+  const pacingSegments = useMemo<Segment[]>(() => {
+    let onTrack = 0, under = 0, over = 0, noSpend = 0
+    for (const c of activeClients) {
+      const m = clientMetrics[c]
+      if (!m) continue
+      if (m.spend === 0) { noSpend++; continue }
+      if (m.deviation >= -5 && m.deviation <= 5) onTrack++
+      else if (m.deviation < -5) under++
+      else over++
     }
+    return [
+      { value: onTrack, color: '#10b981', label: 'En ritmo'      },
+      { value: under,   color: '#f59e0b', label: 'Bajo ritmo'    },
+      { value: over,    color: '#3b82f6', label: 'Sobre ritmo'   },
+      { value: noSpend, color: '#6b7280', label: 'Sin inversión' },
+    ].filter(s => s.value > 0)
+  }, [activeClients, clientMetrics])
 
-    // One alert per client — keep worst (highest severity), then top 5
-    const byClient = new Map<string, DashAlert>()
-    for (const a of raw) {
-      const existing = byClient.get(a.client)
-      if (!existing || a.severity > existing.severity) byClient.set(a.client, a)
-    }
-    return Array.from(byClient.values())
-      .sort((a, b) => b.severity - a.severity)
-      .slice(0, 5)
-  }, [auditClients, activeSet])
+  // Budget distribution by platform
+  const platformSegments = useMemo<Segment[]>(() => {
+    const meta   = monthBudgets.filter(b => b.source === 'facebook').reduce((s, b) => s + b.budget_total, 0)
+    const google = monthBudgets.filter(b => b.source === 'google').reduce((s, b) => s + b.budget_total, 0)
+    return [
+      { value: meta,   color: '#1877F2', label: 'Meta Ads',   fmt: fmtBudget(meta)   },
+      { value: google, color: '#4285F4', label: 'Google Ads', fmt: fmtBudget(google) },
+    ].filter(s => s.value > 0)
+  }, [monthBudgets])
 
-  // Top 3: ALL clients ordered by total messaging conversations (messaging_total = raw, all campaigns)
+  // Top 3 by messaging volume
   const top3 = useMemo<ClientAudit[]>(() => {
     if (!auditClients) return []
     return auditClients
@@ -200,23 +217,29 @@ const DashboardSidebar = memo(function DashboardSidebar({
       .slice(0, 3)
   }, [auditClients, activeSet])
 
+  const monthLabel = `${MONTHS[month - 1]} · ${activeClients.length} cliente${activeClients.length !== 1 ? 's' : ''}`
+
   return (
     <div className="space-y-4">
-      {/* Alertas del mes */}
-      <WidgetShell title="Alertas del mes" sub="Anomalías negativas detectadas">
-        {loading || !auditClients
-          ? <SkeletonWidget rows={4} />
-          : <AlertasList alerts={alerts} month={month} year={year} />
-        }
+
+      {/* Pacing donut */}
+      <WidgetShell title="Ritmo de inversión" sub={monthLabel}>
+        {loading ? <SkeletonDonut /> : <DonutChart segments={pacingSegments} />}
       </WidgetShell>
 
-      {/* Top 3 clientes — mensajes */}
+      {/* Platform budget donut */}
+      <WidgetShell title="Presupuesto por plataforma" sub="Distribución del mes actual">
+        {loading ? <SkeletonDonut /> : <DonutChart segments={platformSegments} />}
+      </WidgetShell>
+
+      {/* Top 3 by messaging */}
       <WidgetShell title="Top 3 clientes del mes" sub="Por mensajes iniciados">
         {loading || !auditClients
-          ? <SkeletonWidget rows={3} />
+          ? <SkeletonList rows={3} />
           : <Top3List clients={top3} />
         }
       </WidgetShell>
+
     </div>
   )
 })
