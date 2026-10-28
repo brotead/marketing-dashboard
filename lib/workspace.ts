@@ -31,19 +31,15 @@ export async function getWorkspaceCtx(): Promise<WorkspaceCtx> {
       }
     )
 
-    // Read session from cookie (no network call) — gives us user ID for cache lookup
-    const { data: { session } } = await authClient.auth.getSession()
-    const cachedId = session?.user?.id
-    if (cachedId) {
-      const hit = _ctxCache.get(cachedId)
-      if (hit && Date.now() - hit.ts < CTX_TTL) return hit.ctx
-    }
-
-    // Cache miss — verify JWT with server (one network call)
+    // Verify JWT with server (required for security — one network call)
     const { data: { user } } = await authClient.auth.getUser()
     if (!user) return EMPTY_CTX
 
-    // Fetch profile + assignments in parallel (was sequential: 2 round-trips → 1)
+    // Cache hit: skip profile + assignment queries (saves 2 round-trips on parallel loads)
+    const cached = _ctxCache.get(user.id)
+    if (cached && Date.now() - cached.ts < CTX_TTL) return cached.ctx
+
+    // Cache miss: fetch profile + assignments in parallel (was sequential)
     const [profileRes, assignRes] = await Promise.all([
       adminClient.from('profiles').select('workspace_id, role, id').eq('id', user.id).single(),
       adminClient.from('user_client_assignments').select('client_name').eq('user_id', user.id),
