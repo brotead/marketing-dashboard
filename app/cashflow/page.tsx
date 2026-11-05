@@ -398,9 +398,13 @@ async function autoSyncCampaigns(
   const toAdd: BudgetEntry[] = []
   for (const [acctKey, unmatchedWc] of unmatchedWcByAcct) {
     const [acctId, acctSource] = acctKey.split('|')
+    // Only count unmatched entries that have a user-set budget or manual override.
+    // Zero-budget unmatched entries (placeholder/renamed stubs) should not block new Windsor
+    // campaigns from appearing — they would otherwise silently absorb new campaigns.
     const unmatchedExistingCount = monthBudgets.filter(b =>
       b.account_id === acctId && b.source === acctSource &&
-      !deleteSet.has(b.campaign_id) && !entryToWc.has(b.campaign_id)
+      !deleteSet.has(b.campaign_id) && !entryToWc.has(b.campaign_id) &&
+      (b.budget_total > 0 || b.spend_override != null)
     ).length
 
     const sorted = [...unmatchedWc].sort((a, b) => (b.today_spend ?? 0) - (a.today_spend ?? 0))
