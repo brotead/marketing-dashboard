@@ -125,7 +125,7 @@ async function runSync() {
         budget_total:  0,
         paused:        false,
         workspace_id:  workspaceByAccount[prev.account_id] ?? prev.workspace_id ?? null,
-      }, { onConflict: 'campaign_id,year,month' })
+      }, { onConflict: 'campaign_id,year,month', ignoreDuplicates: true })
 
       if (!error) {
         newCount++

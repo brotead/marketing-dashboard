@@ -30,10 +30,18 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const ctx  = await getWorkspaceCtx()
-  const body = await req.json()
-  await upsertBudget(body, ctx)
-  return NextResponse.json({ ok: true })
+  try {
+    const ctx  = await getWorkspaceCtx()
+    const body = await req.json()
+    const ignoreDuplicates = body._ignoreDuplicates === true
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { _ignoreDuplicates: _, ...entry } = body
+    await upsertBudget(entry, ctx, ignoreDuplicates)
+    return NextResponse.json({ ok: true })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
 }
 
 export async function DELETE(req: NextRequest) {

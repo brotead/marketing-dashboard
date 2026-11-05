@@ -39,11 +39,11 @@ export async function getBudgets(ctx: WorkspaceCtx): Promise<BudgetEntry[]> {
   return all
 }
 
-export async function upsertBudget(entry: BudgetEntry, ctx: WorkspaceCtx): Promise<void> {
+export async function upsertBudget(entry: BudgetEntry, ctx: WorkspaceCtx, ignoreDuplicates = false): Promise<void> {
   const payload = ctx.workspaceId ? { ...entry, workspace_id: ctx.workspaceId } : entry
   const { error } = await supabase
     .from('budgets')
-    .upsert(payload, { onConflict: 'campaign_id,year,month' })
+    .upsert(payload, { onConflict: 'campaign_id,year,month', ignoreDuplicates })
   if (error) throw new Error(error.message)
 }
 

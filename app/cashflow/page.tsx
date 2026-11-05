@@ -426,7 +426,17 @@ async function autoSyncCampaigns(
   const toDelete = Array.from(deleteSet)
   const allToAdd = [...carryover, ...toAdd]
   const promises: Promise<unknown>[] = [
-    ...[...allToAdd, ...toUpdate].map(e => fetch('/api/budgets', {
+    // Carryover & new Windsor entries: use ignoreDuplicates so we never overwrite user-set budgets
+    ...carryover.map(e => fetch('/api/budgets', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...e, _ignoreDuplicates: true }),
+    })),
+    // New Windsor entries (budget=0 stubs) also shouldn't overwrite existing budgets
+    ...toAdd.map(e => fetch('/api/budgets', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...e, _ignoreDuplicates: true }),
+    })),
+    ...toUpdate.map(e => fetch('/api/budgets', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(e),
     })),
     ...toDelete.map(id => fetch('/api/budgets', {
@@ -597,7 +607,7 @@ export default function CashflowPage() {
             fetch('/api/budgets', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(e),
+              body: JSON.stringify({ ...e, _ignoreDuplicates: true }),
             })
           ))
           bs = [...bs, ...newEntries]
