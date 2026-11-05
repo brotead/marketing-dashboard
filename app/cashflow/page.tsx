@@ -900,11 +900,16 @@ export default function CashflowPage() {
   const projectionExceeds = clientSummary.budget > 0 && projectedEOM > clientSummary.budget * 1.05
 
   const handleSave = useCallback(async (entry: BudgetEntry) => {
-    await fetch('/api/budgets', {
+    const res = await fetch('/api/budgets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(entry),
     })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      setError(`No se pudo guardar el presupuesto: ${body.error ?? res.statusText}`)
+      return
+    }
     appCache.invalidate('budgets')
     setBudgets((prev) => {
       const idx = prev.findIndex(
@@ -914,7 +919,7 @@ export default function CashflowPage() {
       return [...prev, entry]
     })
     setModal(null)
-  }, [])
+  }, [setError])
 
 
   const handleDelete = useCallback(async (entry: BudgetEntry) => {
@@ -966,24 +971,34 @@ export default function CashflowPage() {
 
   const handlePause = useCallback(async (entry: BudgetEntry) => {
     const updated = { ...entry, paused: !entry.paused }
-    await fetch('/api/budgets', {
+    const res = await fetch('/api/budgets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updated),
     })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      setError(`No se pudo actualizar la pausa: ${body.error ?? res.statusText}`)
+      return
+    }
     appCache.invalidate('budgets')
     setBudgets((prev) => prev.map((b) =>
       b.campaign_id === entry.campaign_id && b.year === year && b.month === month ? updated : b
     ))
-  }, [year, month])
+  }, [year, month, setError])
 
   const handleSpendOverride = useCallback(async (entry: BudgetEntry, val: number | null) => {
     const updated = { ...entry, spend_override: val }
-    await fetch('/api/budgets', {
+    const res = await fetch('/api/budgets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updated),
     })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      setError(`No se pudo guardar el gasto manual: ${body.error ?? res.statusText}`)
+      return
+    }
     // Also persist in campaign_overrides for server-side apply across all pages
     fetch('/api/campaign-overrides', {
       method: 'POST',
@@ -1000,7 +1015,7 @@ export default function CashflowPage() {
     setBudgets((prev) => prev.map((b) =>
       b.campaign_id === entry.campaign_id && b.year === entry.year && b.month === entry.month ? updated : b
     ))
-  }, [year, month])
+  }, [year, month, setError])
 
   function getClientAccountId(clientName: string, source: Source): string {
     return monthBudgets.find((b) => b.client_name === clientName && b.source === source)?.account_id ?? ''
